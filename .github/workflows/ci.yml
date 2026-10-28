@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test
+
+      - name: Build BlackText.app
+        run: scripts/build-app.sh
+
+      - name: Quick benchmark (one year of notes)
+        # Shared runners are noisy, so timings are reported, not enforced.
+        continue-on-error: true
+        run: YEARS=1 WORDS=2000 scripts/bench.sh
