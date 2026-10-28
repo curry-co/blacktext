@@ -106,7 +106,22 @@ Everything lives in one SQLite file: `~/Library/Application Support/blktxt/blktx
 
 `make bench` builds a database simulating 10 years of heavy use and times what BlackText does with it. Results on an Apple Silicon Mac:
 
-BENCH_RESULTS
+10 years at 10,000 words a day: **58,419 notes, 364,210 versions, 40.5 million words, a 1.9 GB database.**
+
+| | Time |
+|---|---|
+| Open the database | 0.2 ms |
+| Load the open note | < 0.1 ms |
+| First sidebar page (200 notes) | 0.1 ms |
+| Open any older note | < 0.1 ms |
+| Search all notes: "the", "coffee", a rare word, a whole word | 11–16 ms |
+| Search all notes: a phrase | 43 ms |
+| Search all notes: two letters, or a regex (no index; runs in the background, cancelled as you type) | 0.2 s / 2.3 s |
+| Find in a 100,000-word note | 3.5 ms |
+| Launch, process start to the window drawn with the cursor in your note | ~270–310 ms |
+| Quit | < 1 ms |
+
+For scale, an empty AppKit window with one text view takes about 220 ms on the same Mac. Launch time comes from drawing the window, not from your history: everything BlackText reads at launch takes under a millisecond with ten years of notes. Search reads the newest notes directly first, then streams older ones from a full-text index (trigram for substrings, words for whole words), so common and rare words are both fast.
 
 ## Development
 

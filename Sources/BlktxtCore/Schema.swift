@@ -1,13 +1,16 @@
 import Foundation
 
 enum Schema {
-    static let currentVersion = 1
+    /// Each entry upgrades the schema by one version.
+    private static let migrations = [version1, version2]
+    static var currentVersion: Int { migrations.count }
 
     static func migrate(_ db: Database) throws {
         guard try userVersion(db) < currentVersion else { return }
         try db.transaction {
-            guard try userVersion(db) < currentVersion else { return }
-            try db.execute(version1)
+            let from = try userVersion(db)
+            guard from < currentVersion else { return }
+            for sql in migrations[from...] { try db.execute(sql) }
             try db.execute("PRAGMA user_version = \(currentVersion)")
         }
     }
@@ -71,5 +74,21 @@ enum Schema {
         done_at REAL
     );
     CREATE INDEX inbox_pending ON inbox(id) WHERE done_at IS NULL;
+    """
+
+    /// A word index alongside the trigram one, for fast whole-word search.
+    private static let version2 = """
+    CREATE VIRTUAL TABLE notes_words USING fts5(text, content='notes', content_rowid='id', tokenize='unicode61');
+    INSERT INTO notes_words(notes_words) VALUES ('rebuild');
+    CREATE TRIGGER notes_words_insert AFTER INSERT ON notes BEGIN
+        INSERT INTO notes_words(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER notes_words_delete AFTER DELETE ON notes BEGIN
+        INSERT INTO notes_words(notes_words, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    CREATE TRIGGER notes_words_update AFTER UPDATE OF text ON notes BEGIN
+        INSERT INTO notes_words(notes_words, rowid, text) VALUES ('delete', old.id, old.text);
+        INSERT INTO notes_words(rowid, text) VALUES (new.id, new.text);
+    END;
     """
 }

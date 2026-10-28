@@ -209,15 +209,19 @@ Slow launches almost always mean an app is doing work on startup that grows with
 - **Quitting is instant**: at most one small write, then exit.
 - **Housekeeping (purging old deleted notes) runs after the window is up**, never before.
 
-`make bench` generates a database simulating 10 years of heavy use and measures launch, quit, sidebar, search and find against these targets, so we know rather than hope. Results are recorded in the README.
+`make bench` generates a database simulating 10 years of heavy use and measures launch, quit, sidebar, search and find against these targets, so we know rather than hope.
 
-| | Target |
-|---|---|
-| Click icon → typing | < 200 ms (warm) |
-| Quit | < 50 ms |
-| Search all notes | < 50 ms typical |
-| Open a note from the sidebar | < 16 ms (one frame) |
-| Find in a 100,000-word note | live, no typing lag |
+| | Target | Measured at 10 years (40.5M words, 1.9 GB) |
+|---|---|---|
+| Launch (process start → window drawn, warm) | < 200 ms | ~270–310 ms (a bare AppKit window is ~220 ms) |
+| Quit | < 50 ms | < 1 ms |
+| Search all notes | < 50 ms typical | 11–43 ms indexed; 0.2–2.3 s for two-letter or regex queries |
+| Open a note from the sidebar | < 16 ms | < 0.1 ms |
+| Find in a 100,000-word note | live | 3.5 ms |
+
+The launch target was tighter than macOS allows: an empty AppKit window with one text view already takes ~220 ms on this Mac. What matters held up: everything launch reads takes under a millisecond with ten years of notes, so launch doesn't grow with your history.
+
+Search runs in two passes: the newest notes are read directly (fills results at once for common words), then older notes stream from an index (trigram for substrings, a word index for whole words), newest first, stopping at the result limit.
 
 ---
 
@@ -292,7 +296,8 @@ blktxt/
 ```
 notes      id, created_at, updated_at, text, title, word_count, deleted_at
 versions   id, note_id, created_at, word_count, source, body (compressed)
-notes_fts  trigram full-text index over notes.text
+notes_fts    trigram full-text index over notes.text (substring search)
+notes_words  word full-text index over notes.text (whole-word search)
 state      current note, agent permission
 inbox      agent edits waiting for the running app to apply them
 ```

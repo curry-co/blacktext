@@ -324,45 +324,98 @@ public final class Store: @unchecked Sendable {
     // MARK: Search
 
     /// Searches every live note, most recently edited first.
-    /// The trigram index narrows candidates; `FindEngine` confirms each one with the exact options.
-    public func search(_ query: FindQuery, limit: Int = 100, isCancelled: () -> Bool = { false }) throws -> [SearchHit] {
+    ///
+    /// Two passes keep this fast at any size. First the newest notes are read directly, which fills
+    /// the results almost at once for common words. If that isn't enough, older notes are streamed
+    /// from an index (trigram for substrings, words for whole words), newest first, stopping at
+    /// `limit`; each candidate is confirmed with `FindEngine` using the exact options.
+    public func search(_ query: FindQuery, limit: Int = 100, scanBudget: Int = 2_000_000,
+                       isCancelled: () -> Bool = { false }) throws -> [SearchHit] {
         guard !query.isEmpty else { return [] }
         _ = try FindEngine.regex(for: query)
         let columns = "\(Self.summaryColumns), text"
         let order = "ORDER BY updated_at DESC, id DESC"
-        let sql: String
-        let bindings: [SQLValue?]
-        if !query.options.regex, query.text.unicodeScalars.count >= 3 {
-            let phrase = "\"" + query.text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-            sql = "SELECT \(columns) FROM notes WHERE deleted_at IS NULL AND id IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?) \(order)"
-            bindings = [.text(phrase)]
-        } else if !query.options.regex, query.text.allSatisfy(\.isASCII) {
-            let escaped = query.text
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "%", with: "\\%")
-                .replacingOccurrences(of: "_", with: "\\_")
-            sql = "SELECT \(columns) FROM notes WHERE deleted_at IS NULL AND text LIKE ? ESCAPE '\\' \(order)"
-            bindings = [.text("%\(escaped)%")]
-        } else {
-            sql = "SELECT \(columns) FROM notes WHERE deleted_at IS NULL \(order)"
-            bindings = []
-        }
 
         return try locked {
-            let row = try db.prepare(sql)
-            defer { row.reset() }
-            try row.bind(bindings)
             var hits: [SearchHit] = []
-            while hits.count < limit, !isCancelled(), try row.step() {
+            func consider(_ row: Statement) throws {
                 let text = row.text(7) as NSString
                 let ranges = try FindEngine.matches(of: query, in: text, limit: 10_000, isCancelled: isCancelled)
-                guard !ranges.isEmpty else { continue }
+                guard !ranges.isEmpty else { return }
                 let snippet = Snippet.make(in: text, matches: ranges)
                 hits.append(SearchHit(note: summary(from: row), matchCount: ranges.count,
                                       snippet: snippet.text, snippetMatches: snippet.matches))
             }
+
+            // Pass 1: the newest notes, read directly.
+            var cursor: NoteCursor?
+            var scanned = 0
+            let recent = try db.prepare("SELECT \(columns) FROM notes WHERE deleted_at IS NULL \(order)")
+            defer { recent.reset() }
+            while hits.count < limit, scanned < scanBudget, !isCancelled() {
+                guard try recent.step() else { return hits }
+                try consider(recent)
+                scanned += recent.byteCount(7)
+                cursor = NoteCursor(updatedAt: Date(timeIntervalSince1970: recent.double(3)), id: recent.int64(0))
+            }
+            recent.reset()
+            guard hits.count < limit, !isCancelled(), let cursor else { return hits }
+
+            // Pass 2: older notes. An index streams candidates newest-created first, so nothing is
+            // gathered up front; the hits found are then put in edit order.
+            let older = "deleted_at IS NULL AND (updated_at, id) < (?, ?)"
+            let after: [SQLValue?] = [.double(cursor.updatedAt.timeIntervalSince1970), .int(cursor.id)]
+            var bindings = after
+            let sql: String
+            let index: (table: String, match: String)?
+            if let phrase = Self.wordPhrase(for: query) {
+                index = ("notes_words", phrase)
+            } else if !query.options.regex, query.text.unicodeScalars.count >= 3 {
+                index = ("notes_fts", Self.quoted(query.text))
+            } else {
+                index = nil
+            }
+            if let index {
+                let prefixed = Self.summaryColumns.split(separator: ",").map { "n." + $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
+                sql = """
+                    SELECT \(prefixed), n.text FROM \(index.table) f JOIN notes n ON n.id = f.rowid
+                    WHERE \(index.table) MATCH ? AND n.deleted_at IS NULL AND (n.updated_at, n.id) < (?, ?)
+                    ORDER BY f.rowid DESC
+                    """
+                bindings = [.text(index.match)] + after
+            } else if !query.options.regex, query.text.allSatisfy(\.isASCII) {
+                // Too short for the trigram index: let SQLite skip non-matches (LIKE ignores ASCII case).
+                let escaped = query.text
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "%", with: "\\%")
+                    .replacingOccurrences(of: "_", with: "\\_")
+                sql = "SELECT \(columns) FROM notes WHERE \(older) AND text LIKE ? ESCAPE '\\' \(order)"
+                bindings.append(.text("%\(escaped)%"))
+            } else {
+                sql = "SELECT \(columns) FROM notes WHERE \(older) \(order)"
+            }
+            let row = try db.prepare(sql)
+            defer { row.reset() }
+            try row.bind(bindings)
+            let firstOlder = hits.count
+            while hits.count < limit, !isCancelled(), try row.step() {
+                try consider(row)
+            }
+            hits[firstOlder...].sort { ($0.note.updatedAt, $0.note.id) > ($1.note.updatedAt, $1.note.id) }
             return hits
         }
+    }
+
+    private static func quoted(_ text: String) -> String {
+        "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
+    /// For whole-word searches: the query's words as an FTS phrase, or nil if it has none.
+    static func wordPhrase(for query: FindQuery) -> String? {
+        guard query.options.wholeWord, !query.options.regex else { return nil }
+        let words = query.text.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+        guard !words.isEmpty else { return nil }
+        return quoted(words.joined(separator: " "))
     }
 
     // MARK: Agent inbox

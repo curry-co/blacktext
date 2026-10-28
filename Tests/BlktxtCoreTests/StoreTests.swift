@@ -139,3 +139,25 @@ func temporaryDatabase() -> URL {
         #expect(try other.note(id: id)?.text == "from one")
     }
 }
+
+@Suite struct SearchPassTests {
+    @Test func olderNotesAreFoundThroughTheIndexes() throws {
+        let store = try Store(url: temporaryDatabase())
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let old = try store.createNote(text: "an old note about art and coffee", date: base)
+        for i in 0..<20 { _ = try store.createNote(text: "start part heart \(i)", date: base.addingTimeInterval(Double(i + 1))) }
+        // A tiny scan budget forces pass 2 after the first note.
+        #expect(try store.search(FindQuery("coffee"), scanBudget: 1).map(\.note.id) == [old])
+        #expect(try store.search(FindQuery("art", options: FindOptions(wholeWord: true)), scanBudget: 1).map(\.note.id) == [old])
+        #expect(try store.search(FindQuery("art"), scanBudget: 1).count == 21)
+        #expect(try store.search(FindQuery("co+f", options: FindOptions(regex: true)), scanBudget: 1).map(\.note.id) == [old])
+        #expect(try store.search(FindQuery("an"), scanBudget: 1).map(\.note.id) == [old])
+    }
+
+    @Test func wordPhrase() {
+        #expect(Store.wordPhrase(for: FindQuery("art", options: FindOptions(wholeWord: true))) == "\"art\"")
+        #expect(Store.wordPhrase(for: FindQuery("c++", options: FindOptions(wholeWord: true))) == "\"c\"")
+        #expect(Store.wordPhrase(for: FindQuery("++", options: FindOptions(wholeWord: true))) == nil)
+        #expect(Store.wordPhrase(for: FindQuery("art")) == nil)
+    }
+}

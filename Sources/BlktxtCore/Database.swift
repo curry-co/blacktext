@@ -149,6 +149,7 @@ final class Statement {
     }
 
     func optionalText(_ column: Int32) -> String? { isNull(column) ? nil : text(column) }
+    func byteCount(_ column: Int32) -> Int { Int(sqlite3_column_bytes(raw, column)) }
     func optionalDouble(_ column: Int32) -> Double? { isNull(column) ? nil : double(column) }
     func optionalInt64(_ column: Int32) -> Int64? { isNull(column) ? nil : int64(column) }
 
