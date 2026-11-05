@@ -1,8 +1,14 @@
 # BlackText
 
-> One page. Plain text. Nothing added.
+**BlackText is a plain-text notepad for the Mac that saves everything and adds nothing.**
 
-BlackText (blktxt) is a native macOS notepad. One canvas to type in, saved continuously, with automatic version history, fast find & replace, and a door for AI agents. No formatting, no account, no cloud.
+BlackText is a single page for typing. There's no formatting, no choice of fonts and no styles, just plain text in light or dark.
+
+It saves as you type and keeps a timestamped version of each note as it grows. You never press Save and you never lose a word. When you're done with a thought, ⌘↩ files it away and gives you a clean page. It's made for the things you jot down for a moment: an idea, a quote, a link, or a paragraph from an email you want to rewrite.
+
+Find & replace is instant, in one note or across all of them. BlackText opens as fast after ten years of notes as it did on the first day. Your AI agents, like Claude, GPT and Grok, can read, search and write to it.
+
+It runs on your Mac and keeps everything in one file that belongs to you. It needs no account and no cloud, and it's open source.
 
 - **Plain text only.** One font, one size, black and white. Paste strips formatting.
 - **Never lose a word.** Saved about a second after you pause. A version every 100 words changed.
@@ -10,6 +16,26 @@ BlackText (blktxt) is a native macOS notepad. One canvas to type in, saved conti
 - **Find & replace** that's live as you type: one match at a time or all at once, inverted highlights, match marks, whole word, regex, preserve case, and search across every note.
 - **Fast at any size.** Launch does the same work after ten years as on day one.
 - **Agents welcome.** A built-in MCP server lets Claude, Codex, Cursor and others read, search and write your notes.
+
+## Nothing added
+
+I take my coffee black. I wanted my notes the same way: nothing added.
+
+**Text is enough.** Words don't need bold, fonts or colors to matter. Every style is a decision made instead of a thought finished.
+
+**Saving is the app's job.** You should never have to press Save, and you should never lose a word.
+
+**Fast, forever.** My last editor took five to eight minutes to open. A notepad should be ready before the thought is gone, on day one and in year ten.
+
+**A clean page is one keystroke away.** Most notes are for now: write it, file it, move on. It's still there if you need it.
+
+**History is honest.** Each version is saved when it happened. You can edit any note, but you can't rewrite the past.
+
+**Your notes are yours.** They live in one file on your machine, with no account, no cloud and no lock-in. It's open source, so you never have to take my word for it.
+
+**Agents are guests.** They can read, search and write. They can't delete, and every change they make is saved as a version with their name on it.
+
+**When in doubt, leave it out.**
 
 ## Install
 
