@@ -401,13 +401,43 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 }
 
-/// The strip under the traffic lights. Dragging it moves the window.
+/// The strip under the traffic lights, with BLACKTEXT centered in it. Dragging it moves the window.
 final class TitleStrip: FillView {
+    private let title = TitleLabel(labelWithString: "")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // Clipped so the title disappears with the strip in full screen.
+        clipsToBounds = true
+        let name = "BLACKTEXT"
+        let text = NSMutableAttributedString(string: name, attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: Palette.secondaryText,
+        ])
+        // Letter-spaced, but not after the last letter, so it stays truly centered.
+        text.addAttribute(.kern, value: 1.5, range: NSRange(location: 0, length: name.utf16.count - 1))
+        title.attributedStringValue = text
+        title.setAccessibilityElement(false)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(title)
+        NSLayoutConstraint.activate([
+            title.centerXAnchor.constraint(equalTo: centerXAnchor),
+            title.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
     override var mouseDownCanMoveWindow: Bool { true }
 
     override func mouseUp(with event: NSEvent) {
         if event.clickCount == 2 { window?.performZoom(nil) }
     }
+}
+
+/// Text that clicks pass through, so the strip under it still drags and double-click zooms.
+final class TitleLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 final class MonoSplitView: NSSplitView {
