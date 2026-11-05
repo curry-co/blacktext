@@ -24,7 +24,7 @@ install: app
 
 uninstall:
 	rm -rf ~/Applications/BlackText.app
-	rm -f ~/.local/bin/blktxt
+	rm -f ~/.local/bin/blacktext
 
 test:
 	swift test $(TEST_FLAGS)

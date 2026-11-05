@@ -1,5 +1,5 @@
 import AppKit
-import BlktxtCore
+import BlackTextCore
 import notify
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -101,10 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    // MARK: URLs: blktxt://new?text=…  blktxt://append?text=…  blktxt://open
+    // MARK: URLs: blacktext://new?text=…  blacktext://append?text=…  blacktext://open
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme == "blktxt" {
+        for url in urls where url.scheme == "blacktext" {
             let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first { $0.name == "text" }?.value ?? ""
             switch url.host {
@@ -127,10 +127,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func showAbout(_ sender: Any?) {
-        let credits = NSAttributedString(string: "One page. Plain text. Nothing added.\n\(Blktxt.repository)", attributes: [
+        let credits = NSAttributedString(string: "One page. Plain text. Nothing added.\n\(BlackText.repository)", attributes: [
             .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
         ])
-        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits, .applicationVersion: Blktxt.version, .version: ""])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits, .applicationVersion: BlackText.version, .version: ""])
     }
 
     @objc func toggleAgentsCanEdit(_ sender: Any?) {
@@ -145,14 +145,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private var cliURL: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/blktxt")
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/blacktext")
     }
 
     @objc func copyMCPConfig(_ sender: Any?) {
         let config = """
         {
           "mcpServers": {
-            "blktxt": {
+            "blacktext": {
               "command": "\(cliURL.path)",
               "args": ["mcp"]
             }
@@ -167,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             Paste it into your agent app's MCP settings (for example Claude Desktop's claude_desktop_config.json).
 
             For Claude Code, run:
-            claude mcp add blktxt -- "\(cliURL.path)" mcp
+            claude mcp add blacktext -- "\(cliURL.path)" mcp
             """
         alert.runModal()
     }
@@ -177,11 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         do {
             let bin = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin", isDirectory: true)
             try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-            let link = bin.appendingPathComponent("blktxt")
+            let link = bin.appendingPathComponent("blacktext")
             try? FileManager.default.removeItem(at: link)
             try FileManager.default.createSymbolicLink(at: link, withDestinationURL: cliURL)
-            alert.messageText = "Installed blktxt in ~/.local/bin"
-            alert.informativeText = "Try: blktxt help\n\nIf your shell can't find it, add ~/.local/bin to your PATH."
+            alert.messageText = "Installed blacktext in ~/.local/bin"
+            alert.informativeText = "Try: blacktext help\n\nIf your shell can't find it, add ~/.local/bin to your PATH."
         } catch {
             alert.messageText = "Couldn't install the command line tool"
             alert.informativeText = "\(error.localizedDescription)"
@@ -211,11 +211,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func openRepository(_ sender: Any?) {
-        NSWorkspace.shared.open(URL(string: Blktxt.repository)!)
+        NSWorkspace.shared.open(URL(string: BlackText.repository)!)
     }
 
     @objc func openShortcuts(_ sender: Any?) {
-        NSWorkspace.shared.open(URL(string: Blktxt.repository + "#keyboard")!)
+        NSWorkspace.shared.open(URL(string: BlackText.repository + "#keyboard")!)
     }
 }
 

@@ -2,33 +2,33 @@
 import PackageDescription
 
 let package = Package(
-    name: "blktxt",
+    name: "blacktext",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "BlktxtApp", targets: ["BlktxtApp"]),
-        .executable(name: "blktxt", targets: ["blktxt"]),
-        .executable(name: "blktxt-bench", targets: ["blktxt-bench"]),
+        .executable(name: "BlackTextApp", targets: ["BlackTextApp"]),
+        .executable(name: "blacktext", targets: ["blacktext"]),
+        .executable(name: "blacktext-bench", targets: ["blacktext-bench"]),
     ],
     targets: [
         .target(
-            name: "BlktxtCore",
+            name: "BlackTextCore",
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(
-            name: "BlktxtApp",
-            dependencies: ["BlktxtCore"]
+            name: "BlackTextApp",
+            dependencies: ["BlackTextCore"]
         ),
         .executableTarget(
-            name: "blktxt",
-            dependencies: ["BlktxtCore"]
+            name: "blacktext",
+            dependencies: ["BlackTextCore"]
         ),
         .executableTarget(
-            name: "blktxt-bench",
-            dependencies: ["BlktxtCore"]
+            name: "blacktext-bench",
+            dependencies: ["BlackTextCore"]
         ),
         .testTarget(
-            name: "BlktxtCoreTests",
-            dependencies: ["BlktxtCore"]
+            name: "BlackTextCoreTests",
+            dependencies: ["BlackTextCore"]
         ),
     ],
     swiftLanguageModes: [.v5]

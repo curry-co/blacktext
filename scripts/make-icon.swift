@@ -1,9 +1,9 @@
-// Draws the blktxt icon (a black square with a text cursor) and writes an .icns.
+// Draws the BlackText icon (a black square with a text cursor) and writes an .icns.
 // Usage: swift scripts/make-icon.swift Resources/AppIcon.icns
 import AppKit
 
 let output = CommandLine.arguments.dropFirst().first ?? "Resources/AppIcon.icns"
-let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("blktxt.iconset")
+let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("blacktext.iconset")
 try? FileManager.default.removeItem(at: iconset)
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 

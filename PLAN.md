@@ -2,7 +2,7 @@
 
 > One page. Plain text. Nothing added.
 
-BlackText is a native macOS notepad with one canvas, continuous autosave, automatic version history, the best find & replace we can build, and a door for AI agents. The repo, the command-line tool and the data folder are named `blktxt`. This document is the build spec. All open questions are decided (see the last section).
+BlackText is a native macOS notepad with one canvas, continuous autosave, automatic version history, the best find & replace we can build, and a door for AI agents. The repo, the command-line tool and the data folder are named `blacktext`. This document is the build spec. All open questions are decided (see the last section).
 
 ---
 
@@ -227,11 +227,11 @@ Search runs in two passes: the newest notes are read directly (fills results at 
 
 ## 6. Agents
 
-Agents connect through **MCP** (Model Context Protocol), the common standard for letting AI apps use tools. BlackText ships a small `blktxt` command-line tool inside the app that does double duty:
+Agents connect through **MCP** (Model Context Protocol), the common standard for letting AI apps use tools. BlackText ships a small `blacktext` command-line tool inside the app that does double duty:
 
-- `blktxt mcp` is an MCP server. For Claude Code, setup is one line: `claude mcp add blktxt -- blktxt mcp`. Claude Desktop, Codex, Cursor, and other apps that support local MCP servers take a JSON snippet; the app menu has **Copy MCP Config**.
+- `blacktext mcp` is an MCP server. For Claude Code, setup is one line: `claude mcp add blacktext -- blacktext mcp`. Claude Desktop, Codex, Cursor, and other apps that support local MCP servers take a JSON snippet; the app menu has **Copy MCP Config**.
 - It's also a normal shell tool, useful to you and to agents that run shell commands:
-  `blktxt search coffee` · `pbpaste | blktxt new` · `blktxt cat` · `blktxt append "..."`
+  `blacktext search coffee` · `pbpaste | blacktext new` · `blacktext cat` · `blacktext append "..."`
 
 ### Agent tools
 
@@ -267,25 +267,25 @@ Agents running on your Mac work from day one. Chatbots that run in a browser or 
 | **No third-party dependencies** | Nothing to update or break; the whole app is readable in one repo. |
 | **Swift Package Manager + a build script** | Builds a real `BlackText.app` from the terminal. Xcode is not required. |
 | **Swift Testing** | Unit tests; included with the Command Line Tools. |
-| **GitHub Actions** | Build and test on every push to `curry-co/blktxt`. |
+| **GitHub Actions** | Build and test on every push to `curry-co/blacktext`. |
 
 - Minimum macOS: 14 Sonoma.
-- Bundle ID: `co.curry.blktxt`.
-- Data lives at `~/Library/Application Support/blktxt/blktxt.sqlite`, covered by Time Machine. **File → Export All as Text** writes every note as a `.txt` file.
+- Bundle ID: `co.curry.blacktext`.
+- Data lives at `~/Library/Application Support/blacktext/blacktext.sqlite`, covered by Time Machine. **File → Export All as Text** writes every note as a `.txt` file.
 - Not sandboxed (no App Store), which keeps the CLI and app sharing one database simple.
 
 ### Repo layout
 
 ```
-blktxt/
+blacktext/
   Package.swift
   Makefile                 make app · make run · make install · make test · make bench
   Sources/
-    BlktxtCore/            storage, versioning, search, replace engine, agent service, MCP (no UI, tested)
-    BlktxtApp/             the Mac app (AppKit)
-    blktxt/                the command-line tool + MCP server
-    blktxt-bench/          10-year database generator and timings
-  Tests/BlktxtCoreTests/
+    BlackTextCore/            storage, versioning, search, replace engine, agent service, MCP (no UI, tested)
+    BlackTextApp/             the Mac app (AppKit)
+    blacktext/                the command-line tool + MCP server
+    blacktext-bench/          10-year database generator and timings
+  Tests/BlackTextCoreTests/
   Resources/               Info.plist, app icon
   scripts/                 build-app.sh, make-icon.swift, bench.sh
   README.md  LICENSE  PLAN.md
@@ -310,7 +310,7 @@ inbox      agent edits waiting for the running app to apply them
 make install
 ```
 
-That builds a release version, signs it for local use, copies `BlackText.app` to `~/Applications`, and links the `blktxt` command into `~/.local/bin`. Apps you build yourself aren't quarantined, so macOS opens it without warnings. Later, to hand it to other people: an Apple Developer ID plus notarization, then GitHub Releases and a Homebrew cask.
+That builds a release version, signs it for local use, copies `BlackText.app` to `~/Applications`, and links the `blacktext` command into `~/.local/bin`. Apps you build yourself aren't quarantined, so macOS opens it without warnings. Later, to hand it to other people: an Apple Developer ID plus notarization, then GitHub Releases and a Homebrew cask.
 
 ---
 
@@ -319,7 +319,7 @@ That builds a release version, signs it for local use, copies `BlackText.app` to
 1. **Core**: database, notes, versioning rule, search & replace engine, agent service, MCP, plus tests.
 2. **App**: window, plain-text editor, autosave, ⌘↩ with undo, sun/moon, sidebar with versions.
 3. **Find & replace**: find bar, One/All, inverted highlights and row tints, match marks, replace, search all notes.
-4. **Agents**: `blktxt` CLI and MCP server; live append into the open canvas.
+4. **Agents**: `blacktext` CLI and MCP server; live append into the open canvas.
 5. **Speed**: seed the 10-year database, measure every target in §5, fix anything over budget.
 6. **Polish**: icon, menus, export, Services, URL scheme, README, CI.
 7. **Verify**: launch the real app and drive it (light and dark, find in both modes, ⌘↩ and undo, sidebar, versions), and connect over MCP.
@@ -335,7 +335,7 @@ That builds a release version, signs it for local use, copies `BlackText.app` to
 - **Global hotkey ⌃⌥B** to show/hide BlackText from anywhere.
 - **Match marks** and **preserve-case replace**.
 - **Monochrome everything**, including selection and cursor.
-- **`blktxt://new?text=…` URL** so Raycast, Alfred, and Shortcuts can send text in.
+- **`blacktext://new?text=…` URL** so Raycast, Alfred, and Shortcuts can send text in.
 
 **Later:**
 
@@ -353,7 +353,7 @@ That builds a release version, signs it for local use, copies `BlackText.app` to
 1. **History model:** notes sorted by last edited, each with its own straight-line history; versions are read-only (Copy, New Note from This); no Restore.
 2. **Deleting:** Recently Deleted, purged after 30 days. No auto-expire in v1.
 3. **Storage:** one SQLite file in Application Support, plus Export All as Text.
-4. **Closing the window:** blktxt keeps running; ⌃⌥B shows/hides it.
+4. **Closing the window:** BlackText keeps running; ⌃⌥B shows/hides it.
 5. **Dark mode:** pure black with near-white text; one sun/moon toggle that flips.
 6. **Typing aids:** spell-check on; smart quotes/dashes/autocorrect off; readable column width.
 7. **Agents:** read, search, create, append, find & replace (with versions); no delete; read-only switch.

@@ -1,5 +1,5 @@
 import AppKit
-import BlktxtCore
+import BlackTextCore
 
 protocol SidebarDelegate: AnyObject {
     func sidebar(_ sidebar: SidebarController, didSelectNote id: NoteID)

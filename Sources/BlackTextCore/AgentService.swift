@@ -14,7 +14,7 @@ public enum AgentError: Error, CustomStringConvertible {
     }
 }
 
-/// What agents can do, shared by the `blktxt` CLI and its MCP server.
+/// What agents can do, shared by the `blacktext` CLI and its MCP server.
 /// Reads go to the database. Edits go through the app when it's running, so they never clobber typing.
 public final class AgentService {
     public let store: Store

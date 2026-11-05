@@ -10,17 +10,17 @@ WORDS=${WORDS:-10000}
 DB=${BENCH_DB:-bench/bench-${YEARS}y-${WORDS}w.sqlite}
 mkdir -p "$(dirname "$DB")"
 
-swift build -c release --product blktxt-bench >/dev/null
+swift build -c release --product blacktext-bench >/dev/null
 BIN=$(swift build -c release --show-bin-path)
 
 if [ ! -f "$DB" ]; then
   echo "Seeding $YEARS years at $WORDS words a day → $DB"
-  "$BIN/blktxt-bench" seed --db "$DB" --years "$YEARS" --words-per-day "$WORDS"
+  "$BIN/blacktext-bench" seed --db "$DB" --years "$YEARS" --words-per-day "$WORDS"
 fi
 
 echo
 echo "Database"
-"$BIN/blktxt-bench" measure --db "$DB" || STATUS=$?
+"$BIN/blacktext-bench" measure --db "$DB" || STATUS=$?
 
 APP=build/BlackText.app/Contents/MacOS/BlackText
 if [ -x "$APP" ]; then
@@ -29,7 +29,7 @@ if [ -x "$APP" ]; then
   launches=()
   quits=()
   for _ in 1 2 3 4 5; do
-    out=$(BLKTXT_DB="$DB" BLKTXT_LAUNCH_TRACE=1 BLKTXT_EXIT_AFTER_LAUNCH=1 "$APP" 2>&1 || true)
+    out=$(BLACKTEXT_DB="$DB" BLACKTEXT_LAUNCH_TRACE=1 BLACKTEXT_EXIT_AFTER_LAUNCH=1 "$APP" 2>&1 || true)
     launches+=("$(echo "$out" | sed -n 's/.*launch_ms=\([0-9.]*\).*/\1/p')")
     quits+=("$(echo "$out" | sed -n 's/.*quit_ms=\([0-9.]*\).*/\1/p')")
   done

@@ -1,4 +1,4 @@
-import BlktxtCore
+import BlackTextCore
 import Foundation
 
 /// Autosave and versioning for the note in the canvas.
@@ -21,7 +21,7 @@ final class NoteSession {
 
     private let store: Store
     private let saveStore: Store
-    private let queue = DispatchQueue(label: "co.curry.blktxt.save", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "co.curry.blacktext.save", qos: .userInitiated)
 
     private(set) var noteID: NoteID?
     private(set) var isDirty = false

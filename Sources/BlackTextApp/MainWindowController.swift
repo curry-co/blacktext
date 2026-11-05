@@ -1,5 +1,5 @@
 import AppKit
-import BlktxtCore
+import BlackTextCore
 
 /// The one window: a top strip with the sidebar and sun/moon toggles, the sidebar, and the canvas.
 /// Most menu actions land here so they work wherever focus is.
@@ -249,7 +249,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
-    /// Opens a new note with `text` (Services menu, blktxt:// links).
+    /// Opens a new note with `text` (Services menu, blacktext:// links).
     func openNewNote(text: String) {
         guard let id = try? store.createNote(text: text) else { return }
         _ = try? store.addVersion(noteID: id, text: text)

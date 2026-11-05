@@ -1,6 +1,6 @@
 import Foundation
 
-/// Everything blktxt keeps, in one SQLite file.
+/// Everything BlackText keeps, in one SQLite file.
 ///
 /// Each `Store` owns one connection and serializes calls to it, so it is safe to share across threads.
 /// The app opens a few (main thread, saves, search) so a long search never blocks a save; SQLite's
@@ -315,7 +315,7 @@ public final class Store: @unchecked Sendable {
         set { setValue(newValue.map(String.init), forKey: "current_note") }
     }
 
-    /// Whether agents may change notes (blktxt → Allow Agents to Edit).
+    /// Whether agents may change notes (BlackText → Allow Agents to Edit).
     public var agentsCanEdit: Bool {
         get { value(forKey: "agents_can_edit") != "0" }
         set { setValue(newValue ? "1" : "0", forKey: "agents_can_edit") }

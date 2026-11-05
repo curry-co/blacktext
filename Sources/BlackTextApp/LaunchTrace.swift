@@ -1,11 +1,11 @@
 import AppKit
 
-/// Launch timing for `make bench`. Silent unless BLKTXT_LAUNCH_TRACE is set.
-/// With BLKTXT_EXIT_AFTER_LAUNCH, the app quits as soon as it's ready, so the quit is timed too.
+/// Launch timing for `make bench`. Silent unless BLACKTEXT_LAUNCH_TRACE is set.
+/// With BLACKTEXT_EXIT_AFTER_LAUNCH, the app quits as soon as it's ready, so the quit is timed too.
 enum LaunchTrace {
     private static let environment = ProcessInfo.processInfo.environment
-    static let isEnabled = environment["BLKTXT_LAUNCH_TRACE"] != nil
-    private static let exitsAfterLaunch = environment["BLKTXT_EXIT_AFTER_LAUNCH"] != nil
+    static let isEnabled = environment["BLACKTEXT_LAUNCH_TRACE"] != nil
+    private static let exitsAfterLaunch = environment["BLACKTEXT_EXIT_AFTER_LAUNCH"] != nil
 
     /// When the kernel started this process.
     private static let processStart: Date = {

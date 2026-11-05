@@ -143,7 +143,7 @@ extension Store {
 /// How the CLI and the app find each other: a lock file the app holds while it runs,
 /// and a Darwin notification that says "the database changed, take a look".
 public final class AppLink: @unchecked Sendable {
-    public static let changedNotification = "co.curry.blktxt.changed"
+    public static let changedNotification = "co.curry.blacktext.changed"
 
     public let lockURL: URL
     private var heldDescriptor: Int32 = -1

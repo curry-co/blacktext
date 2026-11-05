@@ -1,10 +1,10 @@
 import Foundation
 import Testing
-@testable import BlktxtCore
+@testable import BlackTextCore
 
 func temporaryDatabase() -> URL {
     FileManager.default.temporaryDirectory
-        .appendingPathComponent("blktxt-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("blacktext-tests-\(UUID().uuidString)", isDirectory: true)
         .appendingPathComponent("test.sqlite")
 }
 

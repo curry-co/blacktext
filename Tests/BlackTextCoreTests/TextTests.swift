@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import BlktxtCore
+@testable import BlackTextCore
 
 @Suite struct WordCountTests {
     @Test func countsRunsOfNonWhitespace() {

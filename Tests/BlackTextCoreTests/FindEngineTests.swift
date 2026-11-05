@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import BlktxtCore
+@testable import BlackTextCore
 
 @Suite struct FindEngineTests {
     func find(_ query: String, in text: String, _ options: FindOptions = FindOptions()) throws -> [String] {

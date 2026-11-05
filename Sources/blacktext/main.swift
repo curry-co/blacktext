@@ -1,21 +1,21 @@
-import BlktxtCore
+import BlackTextCore
 import Foundation
 
 let usage = """
-blktxt — the command line for BlackText. One page, plain text, nothing added.
+blacktext — the command line for BlackText. One page, plain text, nothing added.
 
 Usage:
-  blktxt list [-n COUNT]                 Recent notes, most recently edited first
-  blktxt cat [ID]                        Print a note (default: the one open in BlackText)
-  blktxt search QUERY [-n COUNT] [--case] [--word] [--regex]
-  blktxt new [TEXT…]                     New note from TEXT, or from stdin
-  blktxt append [TEXT…]                  Append to the open note (TEXT or stdin)
-  blktxt replace FIND REPLACE [--note ID] [--first] [--case] [--word] [--regex] [--preserve-case]
-  blktxt versions ID                     A note's saved versions
-  blktxt version ID                      Print one version
-  blktxt open                            Open BlackText
-  blktxt mcp                             Run the MCP server on stdio, for AI agents
-  blktxt mcp-config                      Print the MCP config to paste into an agent app
+  blacktext list [-n COUNT]                 Recent notes, most recently edited first
+  blacktext cat [ID]                        Print a note (default: the one open in BlackText)
+  blacktext search QUERY [-n COUNT] [--case] [--word] [--regex]
+  blacktext new [TEXT…]                     New note from TEXT, or from stdin
+  blacktext append [TEXT…]                  Append to the open note (TEXT or stdin)
+  blacktext replace FIND REPLACE [--note ID] [--first] [--case] [--word] [--regex] [--preserve-case]
+  blacktext versions ID                     A note's saved versions
+  blacktext version ID                      Print one version
+  blacktext open                            Open BlackText
+  blacktext mcp                             Run the MCP server on stdio, for AI agents
+  blacktext mcp-config                      Print the MCP config to paste into an agent app
 
 Add --json to list, cat, search and versions for machine-readable output.
 
@@ -108,7 +108,7 @@ func run() throws {
     let args = Arguments(raw)
 
     if ["help", "-h", "--help"].contains(command) { print(usage, terminator: ""); return }
-    if ["version", "--version", "-v"].contains(command) && args.positional.isEmpty { print(Blktxt.version); return }
+    if ["version", "--version", "-v"].contains(command) && args.positional.isEmpty { print(BlackText.version); return }
     if command == "open" {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -118,7 +118,7 @@ func run() throws {
         return
     }
     if command == "mcp-config" {
-        printJSON(["mcpServers": ["blktxt": ["command": executablePath(), "args": ["mcp"]]]])
+        printJSON(["mcpServers": ["blacktext": ["command": executablePath(), "args": ["mcp"]]]])
         return
     }
 
@@ -127,7 +127,7 @@ func run() throws {
 
     switch command {
     case "mcp":
-        MCPServer(service: service, version: Blktxt.version).run()
+        MCPServer(service: service, version: BlackText.version).run()
 
     case "list", "ls":
         let notes = try service.listNotes(limit: args.count(default: 20))
@@ -140,7 +140,7 @@ func run() throws {
         print(note.text, terminator: note.text.hasSuffix("\n") ? "" : "\n")
 
     case "search", "find":
-        guard let query = args.positional.first else { throw CLIError(description: "Usage: blktxt search QUERY") }
+        guard let query = args.positional.first else { throw CLIError(description: "Usage: blacktext search QUERY") }
         let hits = try service.search(FindQuery(query, options: args.findOptions), limit: args.count(default: 20))
         if args.json { printJSON(hits.map(AgentJSON.hit)); return }
         for hit in hits {
@@ -156,7 +156,7 @@ func run() throws {
         try report(service.appendToCurrent(text: try inputText(args.positional)))
 
     case "replace":
-        guard args.positional.count == 2 else { throw CLIError(description: "Usage: blktxt replace FIND REPLACE") }
+        guard args.positional.count == 2 else { throw CLIError(description: "Usage: blacktext replace FIND REPLACE") }
         let result = try service.replace(in: try noteID(args.values["--note"]), find: args.positional[0], with: args.positional[1],
                                          options: args.findOptions, all: !args.flags.contains("--first"),
                                          preserveCase: args.flags.contains("--preserve-case"))
@@ -164,7 +164,7 @@ func run() throws {
         print("\(result.replacements ?? 0) replaced")
 
     case "versions":
-        guard let id = try noteID(args.positional.first) else { throw CLIError(description: "Usage: blktxt versions ID") }
+        guard let id = try noteID(args.positional.first) else { throw CLIError(description: "Usage: blacktext versions ID") }
         let versions = try service.versions(noteID: id)
         if args.json { printJSON(versions.map(AgentJSON.version)); return }
         for version in versions {
@@ -173,7 +173,7 @@ func run() throws {
         }
 
     case "version":
-        guard let raw = args.positional.first, let id = VersionID(raw) else { throw CLIError(description: "Usage: blktxt version ID") }
+        guard let raw = args.positional.first, let id = VersionID(raw) else { throw CLIError(description: "Usage: blacktext version ID") }
         let version = try service.readVersion(id: id)
         print(version.text, terminator: version.text.hasSuffix("\n") ? "" : "\n")
 
@@ -185,6 +185,6 @@ func run() throws {
 do {
     try run()
 } catch {
-    FileHandle.standardError.write(Data("blktxt: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("blacktext: \(error)\n".utf8))
     exit(1)
 }

@@ -1,5 +1,5 @@
 import AppKit
-import BlktxtCore
+import BlackTextCore
 
 /// A counter other threads can check to see if their search is still wanted.
 final class Generation: @unchecked Sendable {
@@ -50,8 +50,8 @@ final class FindController: NSObject, NSTextFieldDelegate {
     private var searchOrigin = 0
     private let noteGeneration = Generation()
     private let allGeneration = Generation()
-    private let noteQueue = DispatchQueue(label: "co.curry.blktxt.find", qos: .userInitiated)
-    private let allQueue = DispatchQueue(label: "co.curry.blktxt.search", qos: .userInitiated)
+    private let noteQueue = DispatchQueue(label: "co.curry.blacktext.find", qos: .userInitiated)
+    private let allQueue = DispatchQueue(label: "co.curry.blacktext.search", qos: .userInitiated)
     private var editDebounce: DispatchWorkItem?
     private var allDebounce: DispatchWorkItem?
     private var historyIndex: Int?

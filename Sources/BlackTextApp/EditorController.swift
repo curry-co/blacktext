@@ -1,5 +1,5 @@
 import AppKit
-import BlktxtCore
+import BlackTextCore
 
 protocol EditorControllerDelegate: AnyObject {
     func editor(_ editor: EditorController, didOpen noteID: NoteID?)

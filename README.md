@@ -42,12 +42,12 @@ I take my coffee black. I wanted my notes the same way: nothing added.
 Requires macOS 14 or later and the Xcode Command Line Tools (`xcode-select --install`). Xcode itself isn't needed.
 
 ```bash
-git clone https://github.com/curry-co/blktxt.git
-cd blktxt
+git clone https://github.com/curry-co/blacktext.git
+cd blacktext
 make install
 ```
 
-This builds `BlackText.app`, puts it in `~/Applications`, and links the `blktxt` command into `~/.local/bin`.
+This builds `BlackText.app`, puts it in `~/Applications`, and links the `blacktext` command into `~/.local/bin`.
 
 ## Using it
 
@@ -84,15 +84,15 @@ Closing the window keeps BlackText running. **⌃⌥B** anywhere shows or hides 
 ### Sending text in
 
 - **Services**: select text in any app → right-click → Services → **New BlackText Note**.
-- **URLs**: `blktxt://new?text=…` and `blktxt://append?text=…` (for Raycast, Alfred, Shortcuts).
-- **Shell**: `pbpaste | blktxt new`.
+- **URLs**: `blacktext://new?text=…` and `blacktext://append?text=…` (for Raycast, Alfred, Shortcuts).
+- **Shell**: `pbpaste | blacktext new`.
 
 ## Agents
 
 BlackText speaks [MCP](https://modelcontextprotocol.io). For Claude Code:
 
 ```bash
-claude mcp add blktxt -- ~/Applications/BlackText.app/Contents/Helpers/blktxt mcp
+claude mcp add blacktext -- ~/Applications/BlackText.app/Contents/Helpers/blacktext mcp
 ```
 
 For Claude Desktop, Cursor and others, choose **BlackText → Copy MCP Config** and paste it into the app's MCP settings.
@@ -109,24 +109,24 @@ For Claude Desktop, Cursor and others, choose **BlackText → Copy MCP Config** 
 
 Agents can't delete. Uncheck **BlackText → Allow Agents to Edit** to make them read-only. While the app is running, agent edits go through it, so they never overwrite what you're typing. Every agent edit is recorded as a version tagged with the agent's name.
 
-## The `blktxt` command
+## The `blacktext` command
 
 ```
-blktxt list [-n COUNT]          Recent notes
-blktxt cat [ID]                 Print a note (default: the open one)
-blktxt search QUERY [--case] [--word] [--regex]
-blktxt new [TEXT…]              New note from TEXT or stdin
-blktxt append [TEXT…]           Append to the open note
-blktxt replace FIND REPLACE [--note ID] [--first] [--preserve-case]
-blktxt versions ID / version ID
-blktxt mcp                      MCP server on stdio
+blacktext list [-n COUNT]          Recent notes
+blacktext cat [ID]                 Print a note (default: the open one)
+blacktext search QUERY [--case] [--word] [--regex]
+blacktext new [TEXT…]              New note from TEXT or stdin
+blacktext append [TEXT…]           Append to the open note
+blacktext replace FIND REPLACE [--note ID] [--first] [--preserve-case]
+blacktext versions ID / version ID
+blacktext mcp                      MCP server on stdio
 ```
 
 Add `--json` to `list`, `cat`, `search` and `versions` for machine-readable output.
 
 ## Your data
 
-Everything lives in one SQLite file: `~/Library/Application Support/blktxt/blktxt.sqlite`. Time Machine backs it up. **File → Export All as Text** writes every note as a `.txt` file. Any SQLite tool can open it.
+Everything lives in one SQLite file: `~/Library/Application Support/blacktext/blacktext.sqlite`. Time Machine backs it up. **File → Export All as Text** writes every note as a `.txt` file. Any SQLite tool can open it.
 
 ## Speed
 
@@ -158,12 +158,12 @@ make run       # build and open it
 make bench     # seed 10 years of notes and measure
 ```
 
-`BLKTXT_DB=/path/to/test.sqlite` points the app and the CLI at a different database. The code:
+`BLACKTEXT_DB=/path/to/test.sqlite` points the app and the CLI at a different database. The code:
 
-- `Sources/BlktxtCore`: storage, versioning, search, find & replace, agents, MCP. No UI; tested.
-- `Sources/BlktxtApp`: the AppKit app.
-- `Sources/blktxt`: the command-line tool.
-- `Sources/blktxt-bench`: the benchmark.
+- `Sources/BlackTextCore`: storage, versioning, search, find & replace, agents, MCP. No UI; tested.
+- `Sources/BlackTextApp`: the AppKit app.
+- `Sources/blacktext`: the command-line tool.
+- `Sources/blacktext-bench`: the benchmark.
 
 See [PLAN.md](PLAN.md) for the design.
 

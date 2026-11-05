@@ -1,10 +1,10 @@
-import BlktxtCore
+import BlackTextCore
 import Foundation
 
 // Generates a database that looks like years of heavy use, then times what BlackText does with it.
 //
-//   blktxt-bench seed    --db PATH [--years 10] [--words-per-day 10000]
-//   blktxt-bench measure --db PATH
+//   blacktext-bench seed    --db PATH [--years 10] [--words-per-day 10000]
+//   blacktext-bench measure --db PATH
 
 /// Small, fast, deterministic random numbers so every run builds the same database.
 struct SplitMix64 {
@@ -213,5 +213,5 @@ setvbuf(stdout, nil, _IOLBF, 0)
 switch CommandLine.arguments.dropFirst().first {
 case "seed": try seed()
 case "measure": try measure()
-default: print("usage: blktxt-bench seed|measure --db PATH [--years N] [--words-per-day N]")
+default: print("usage: blacktext-bench seed|measure --db PATH [--years N] [--words-per-day N]")
 }

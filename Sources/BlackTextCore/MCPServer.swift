@@ -61,7 +61,7 @@ public final class MCPServer {
         return [
             "protocolVersion": version,
             "capabilities": ["tools": ["listChanged": false]],
-            "serverInfo": ["name": "blktxt", "title": "BlackText", "version": self.version],
+            "serverInfo": ["name": "blacktext", "title": "BlackText", "version": self.version],
             "instructions": """
                 BlackText is the user's plain-text notepad. Notes are plain text, no formatting. \
                 "Current" means the note open in the canvas right now. Prefer create_note for new material; \
@@ -219,7 +219,7 @@ public final class MCPServer {
     }
 }
 
-/// JSON shapes shared by MCP and `blktxt --json`.
+/// JSON shapes shared by MCP and `blacktext --json`.
 public enum AgentJSON {
     private static let dateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()

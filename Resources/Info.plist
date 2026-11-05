@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>BlackText</string>
     <key>CFBundleIdentifier</key>
-    <string>co.curry.blktxt</string>
+    <string>co.curry.blacktext</string>
     <key>CFBundleExecutable</key>
     <string>BlackText</string>
     <key>CFBundleIconFile</key>
@@ -33,15 +33,15 @@
     <key>NSSupportsSuddenTermination</key>
     <false/>
     <key>NSHumanReadableCopyright</key>
-    <string>MIT License. github.com/curry-co/blktxt</string>
+    <string>MIT License. github.com/curry-co/blacktext</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>co.curry.blktxt</string>
+            <string>co.curry.blacktext</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>blktxt</string>
+                <string>blacktext</string>
             </array>
         </dict>
     </array>

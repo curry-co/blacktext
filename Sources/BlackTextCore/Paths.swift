@@ -1,15 +1,15 @@
 import Foundation
 
 public enum Paths {
-    public static let bundleIdentifier = "co.curry.blktxt"
+    public static let bundleIdentifier = "co.curry.blacktext"
 
-    /// The database file. `BLKTXT_DB` overrides it (tests, benchmarks).
+    /// The database file. `BLACKTEXT_DB` overrides it (tests, benchmarks).
     public static var databaseURL: URL {
-        if let override = ProcessInfo.processInfo.environment["BLKTXT_DB"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["BLACKTEXT_DB"], !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent("blktxt", isDirectory: true).appendingPathComponent("blktxt.sqlite")
+        return support.appendingPathComponent("blacktext", isDirectory: true).appendingPathComponent("blacktext.sqlite")
     }
 
     /// Held by the running app; tells the CLI whether to route edits through it.

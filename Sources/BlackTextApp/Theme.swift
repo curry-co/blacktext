@@ -26,7 +26,7 @@ enum Palette {
 }
 
 extension Notification.Name {
-    static let themeDidChange = Notification.Name("blktxt.themeDidChange")
+    static let themeDidChange = Notification.Name("blacktext.themeDidChange")
 }
 
 /// Light or dark. Follows the system until the sun/moon is clicked, then sticks.
