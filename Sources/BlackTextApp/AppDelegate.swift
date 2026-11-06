@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var hotKey: HotKey?
     private var notifyToken: Int32 = 0
     private let services = ServiceProvider()
+    private var cloudSync: CloudSync?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         Preferences.register()
@@ -55,7 +56,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         DispatchQueue.global(qos: .utility).async {
             _ = try? store.purgeDeleted(before: Date().addingTimeInterval(-30 * 86_400))
         }
+        startCloudSync()
         LaunchTrace.finished()
+    }
+
+    // MARK: iCloud
+
+    /// Only builds signed with the iCloud entitlement sync (not `make install`).
+    private func startCloudSync() {
+        guard CloudSync.isAvailable, let syncStore = try? Store() else { return }
+        let sync = CloudSync(store: syncStore, deviceName: Host.current().localizedName ?? "Mac")
+        sync.willApplyRemoteChanges = { [weak self] in self?.windowController.editor.saveBeforeRemoteChanges() }
+        sync.didApplyRemoteChanges = { [weak self] ids in self?.windowController.remoteNotesDidChange(ids) }
+        windowController.onLocalChange = { [weak sync] in sync?.localChangesMayExist() }
+        cloudSync = sync
+        sync.start()
+        NSApp.registerForRemoteNotifications()
+    }
+
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        cloudSync?.fetchNow()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        cloudSync?.fetchNow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -88,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             try? store.complete(opID: op.id, result: result)
         }
         windowController.databaseDidChange()
+        cloudSync?.localChangesMayExist()
     }
 
     private func toggleVisibility() {
