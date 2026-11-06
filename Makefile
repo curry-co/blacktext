@@ -8,7 +8,7 @@ TEST_FLAGS := -Xswiftc -F -Xswiftc $(CLT_DEV)/Frameworks \
 	-Xlinker -rpath -Xlinker $(CLT_DEV)/usr/lib
 endif
 
-.PHONY: build app run install uninstall test bench icon clean
+.PHONY: build app run install uninstall test bench icon release clean
 
 build:
 	swift build -c release
@@ -31,6 +31,9 @@ test:
 
 bench:
 	scripts/bench.sh
+
+release:
+	scripts/release.sh
 
 icon:
 	swift scripts/make-icon.swift Resources/AppIcon.icns
