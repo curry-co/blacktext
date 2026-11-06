@@ -7,7 +7,7 @@ import Foundation
 /// write-ahead log lets them read and write the same file concurrently.
 public final class Store: @unchecked Sendable {
     public let url: URL
-    private let db: Database
+    let db: Database
     private let lock = NSLock()
 
     public init(url: URL = Paths.databaseURL) throws {
@@ -20,7 +20,7 @@ public final class Store: @unchecked Sendable {
         try Schema.migrate(db)
     }
 
-    private func locked<T>(_ body: () throws -> T) throws -> T {
+    func locked<T>(_ body: () throws -> T) throws -> T {
         lock.lock()
         defer { lock.unlock() }
         return try body()
@@ -28,7 +28,7 @@ public final class Store: @unchecked Sendable {
 
     // MARK: Notes
 
-    private static let summaryColumns = "id, title, created_at, updated_at, word_count, version_count, deleted_at"
+    static let summaryColumns = "id, title, created_at, updated_at, word_count, version_count, deleted_at"
 
     private func summary(from row: Statement) -> NoteSummary {
         NoteSummary(id: row.int64(0),
@@ -71,7 +71,7 @@ public final class Store: @unchecked Sendable {
         try locked { try summaryLocked(id) }
     }
 
-    private func summaryLocked(_ id: NoteID) throws -> NoteSummary? {
+    func summaryLocked(_ id: NoteID) throws -> NoteSummary? {
         let row = try db.prepare("SELECT \(Self.summaryColumns) FROM notes WHERE id = ?")
         defer { row.reset() }
         try row.bind([.int(id)])
@@ -228,19 +228,29 @@ public final class Store: @unchecked Sendable {
     @discardableResult
     public func addVersion(noteID: NoteID, text: String, source: String = "user", date: Date = Date()) throws -> VersionID? {
         guard !text.allSatisfy(\.isWhitespace) else { return nil }
-        let words = Int64(WordCount.count(text))
+        // Compress outside the lock so a big note never holds up other readers.
         let packed = Compression.pack(text)
+        let words = WordCount.count(text)
         return try locked {
-            if let latest = try latestVersionTextLocked(noteID), latest == text { return nil }
-            return try db.transaction {
-                try db.run("INSERT INTO versions (note_id, created_at, word_count, source, compressed, body) VALUES (?, ?, ?, ?, ?, ?)",
-                           .int(noteID), .double(date.timeIntervalSince1970), .int(words), .text(source),
-                           .int(packed.compressed ? 1 : 0), .blob(packed.data))
-                let id = db.lastInsertRowID
-                try db.run("UPDATE notes SET version_count = version_count + 1 WHERE id = ?", .int(noteID))
-                return id
+            try db.transaction {
+                try insertVersionLocked(noteID: noteID, text: text, source: source, date: date, packed: packed, words: words)
             }
         }
+    }
+
+    /// The body of `addVersion`, for callers already holding the lock inside a transaction.
+    @discardableResult
+    func insertVersionLocked(noteID: NoteID, text: String, source: String, date: Date,
+                             packed: (data: Data, compressed: Bool)? = nil, words: Int? = nil) throws -> VersionID? {
+        guard !text.allSatisfy(\.isWhitespace) else { return nil }
+        if let latest = try latestVersionTextLocked(noteID), latest == text { return nil }
+        let packed = packed ?? Compression.pack(text)
+        try db.run("INSERT INTO versions (note_id, created_at, word_count, source, compressed, body) VALUES (?, ?, ?, ?, ?, ?)",
+                   .int(noteID), .double(date.timeIntervalSince1970), .int(Int64(words ?? WordCount.count(text))), .text(source),
+                   .int(packed.compressed ? 1 : 0), .blob(packed.data))
+        let id = db.lastInsertRowID
+        try db.run("UPDATE notes SET version_count = version_count + 1 WHERE id = ?", .int(noteID))
+        return id
     }
 
     /// A note's versions, newest first.
