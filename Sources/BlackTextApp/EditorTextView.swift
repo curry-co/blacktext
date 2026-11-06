@@ -1,4 +1,5 @@
 import AppKit
+import BlackTextCore
 
 protocol EditorTextViewDelegate: AnyObject {
     /// Esc. Return true if handled.

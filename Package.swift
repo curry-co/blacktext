@@ -3,8 +3,9 @@ import PackageDescription
 
 let package = Package(
     name: "blacktext",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
+        .library(name: "BlackTextCore", targets: ["BlackTextCore"]),
         .executable(name: "BlackTextApp", targets: ["BlackTextApp"]),
         .executable(name: "blacktext", targets: ["blacktext"]),
         .executable(name: "blacktext-bench", targets: ["blacktext-bench"]),
