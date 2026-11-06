@@ -13,7 +13,7 @@ This is the build spec for the iOS version. The Mac spec is [PLAN.md](PLAN.md); 
 | **Language** | Native Swift + UIKit, sharing `BlackTextCore` with the Mac app | One copy of every rule (versions every 100 words, titles, word counts, search, find & replace, merging edits), so the two apps can't drift or disagree. |
 | **Not Expo / React Native** | Rejected | Expo Go can't use iCloud; React Native's text box can't do large-note speed, inverted find highlights or match marks; the rules would exist twice; hundreds of npm packages. |
 | **Builds** | GitHub Actions (the repo's existing CI), no local Xcode needed | Its Macs have Xcode; free for public repos. |
-| **Delivery** | TestFlight, to jason@curry.co | |
+| **Delivery** | TestFlight (internal testing), then the App Store | |
 | **Sync** | CloudKit private database via `CKSyncEngine` | Apple's engine for exactly this: batching, retries, push notifications, account changes. |
 | **Privacy** | Note text, titles and version bodies go in CloudKit *encrypted* fields | End-to-end encrypted with keys in your iCloud Keychain, even without Advanced Data Protection. Apple can't read them. |
 | **Minimum OS** | iOS 17 (needed by `CKSyncEngine`); macOS stays 14 | |
@@ -132,17 +132,17 @@ Resources/                     Mac Info.plist and icon (the iOS icon comes from 
   2. Run the core tests on the iOS Simulator.
   3. Launch the app in the Simulator and save screenshots (light, dark, sidebar, find, Save+New) as build artifacts, so changes can be checked without a phone.
   4. Archive, sign and upload to TestFlight, when the signing secrets are set.
-- Repo secrets (you add them; the commands are in the setup notes): the Apple Distribution certificate (`.p12`) and its password, the App Store provisioning profile, and the App Store Connect API key (key ID, issuer ID, `.p8`).
+- Repo secrets: an App Store Connect API key with Admin access (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`). Xcode uses it to sign automatically, so no certificates or profiles are stored in the repo.
 - Build number: the GitHub run number. Version: the same `Version.swift` as the Mac.
 
 ### Apple account setup
 
 1. App ID `co.curry.blacktext` with iCloud (CloudKit), Push Notifications and App Groups.
 2. iCloud container `iCloud.co.curry.blacktext`; App Group `group.co.curry.blacktext`.
-3. Apple Distribution certificate, using the same CSR flow as the Developer ID one.
-4. Provisioning profiles: iOS App Store (for TestFlight), and macOS Developer ID with iCloud (gives the Mac app sync).
+3. Signing for TestFlight: automatic, through the API key in CI.
+4. A macOS Developer ID provisioning profile with iCloud (gives the Mac app sync).
 5. An App Store Connect app record for iOS.
-6. jason@curry.co invited to the team; an internal TestFlight group.
+6. Testers invited to the team; an internal TestFlight group.
 7. CloudKit schema: created by a development build of the Mac app syncing for real, then deployed to Production in CloudKit Console (TestFlight and Developer ID builds use Production).
 
 ---
@@ -152,7 +152,7 @@ Resources/                     Mac Info.plist and icon (the iOS icon comes from 
 1. **Core sync:** `uid` migration, outbox triggers, the CloudKit record mapping, conflict rules, the sync engine, and tests (everything except the network is tested with a fake CloudKit).
 2. **Mac sync:** entitlements and the Developer ID profile, push registration, live canvas updates. Verified on this Mac against CloudKit's Development environment.
 3. **iOS app:** the UIKit port with Save+New; CI builds and screenshots it.
-4. **Account setup and TestFlight:** first build to jason@curry.co.
+4. **Account setup and TestFlight:** the first build to testers.
 5. **Parity and sync testing:** walk the table in §2 on both devices; edit the same note on both, offline edits, a 150,000-word note, deletes and Put Back, sign out of iCloud.
 6. **Later:** share extension, Shortcuts, iPad keyboard polish, App Store release.
 
