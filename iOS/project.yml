@@ -1,0 +1,51 @@
+# XcodeGen spec for BlackText on iPhone and iPad. CI runs `xcodegen` here to make BlackText.xcodeproj.
+# Signing settings are left out on purpose: CI passes them.
+name: BlackText
+
+options:
+  bundleIdPrefix: co.curry
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+
+packages:
+  # The repo root: BlackTextCore is shared with the Mac app.
+  blacktext:
+    path: ..
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    # iCloud sync needs a signed build with the iCloud entitlement; TestFlight builds set this to YES.
+    BT_CLOUD_SYNC: "NO"
+
+targets:
+  BlackText:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: BlackText
+    dependencies:
+      - package: blacktext
+        product: BlackTextCore
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_NAME: BlackText
+        PRODUCT_BUNDLE_IDENTIFIER: co.curry.blacktext
+        INFOPLIST_FILE: BlackText/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: BlackText/BlackText.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_VERSION: "5.0"
+        ENABLE_PREVIEWS: NO
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"

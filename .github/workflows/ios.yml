@@ -1,0 +1,54 @@
+name: iOS
+
+on:
+  push:
+    branches: [ios, "ios/**"]
+    paths-ignore: ["**.md", "design/**"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      SIMULATOR: iPhone 17
+      # Uploading to TestFlight needs these repo secrets; without them the job stops after the screenshots.
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tools
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+
+      - name: Generate the Xcode project
+        run: cd iOS && xcodegen generate
+
+      - name: Build for the Simulator
+        run: |
+          set -o pipefail
+          xcodebuild build -project iOS/BlackText.xcodeproj -scheme BlackText -configuration Debug \
+            -destination "platform=iOS Simulator,name=$SIMULATOR" -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | grep -E "error:|warning: .*BlackText|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/ios/Build/Products/Debug-iphonesimulator/BlackText.app
+
+      - name: Screenshots
+        run: scripts/ios-screenshots.sh build/ios/Build/Products/Debug-iphonesimulator/BlackText.app build/screenshots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: build/screenshots
+          if-no-files-found: ignore
+
+      - name: Archive and upload to TestFlight
+        if: env.ASC_KEY_ID != ''
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: scripts/ios-testflight.sh
