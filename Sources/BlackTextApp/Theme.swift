@@ -1,4 +1,5 @@
 import AppKit
+import BlackTextCore
 
 /// Every color in BlackText. Black, white, and transparencies of each. Nothing else.
 enum Palette {

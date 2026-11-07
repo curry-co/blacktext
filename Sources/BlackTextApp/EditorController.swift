@@ -206,6 +206,33 @@ final class EditorController: NSViewController, NSTextViewDelegate, EditorTextVi
         session.save(version: .ifChanged, wait: true)
     }
 
+    /// Before changes from another device are written: save what's typed so far (no version), so
+    /// sync can see this note was edited here and keep both texts if they differ.
+    func saveBeforeRemoteChanges() {
+        if textView.hasMarkedText() { return } // mid-composition (e.g. Japanese input): leave it be
+        session.save(version: .never, wait: true)
+    }
+
+    /// The open note changed on another device. If nothing was typed here since the last save, show
+    /// the new text in place, keeping the caret where it was (or as close as the new text allows).
+    func reloadAfterRemoteChange(_ ids: Set<NoteID>) {
+        guard preview == nil, let id = session.noteID, ids.contains(id), !session.isDirty,
+              let note = try? store.note(id: id), note.text != textView.string else { return }
+        if note.deletedAt != nil {
+            open(noteID: nil)
+            return
+        }
+        let selection = textView.selectedRange()
+        let visible = textView.visibleRect
+        session.load(note)
+        textView.setPlainText(note.text)
+        textView.undoManager?.removeAllActions()
+        let length = (note.text as NSString).length
+        textView.setSelectedRange(NSRange(location: min(selection.location, length),
+                                          length: min(selection.length, max(0, length - selection.location))))
+        textView.scrollToVisible(visible)
+    }
+
     func saveSoon() {
         session.save()
     }

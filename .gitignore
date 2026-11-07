@@ -5,3 +5,12 @@
 xcuserdata/
 .DS_Store
 /bench/
+
+# Signing material lives in ~/.config/blacktext-release, never here.
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+AuthKey_*
+.env

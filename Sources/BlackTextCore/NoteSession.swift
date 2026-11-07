@@ -1,12 +1,11 @@
-import BlackTextCore
 import Foundation
 
 /// Autosave and versioning for the note in the canvas.
 ///
 /// A keystroke only marks the note dirty. A save runs 1 second after typing stops, or at most
 /// 5 seconds after the first unsaved change, on a background connection. Idle means no timers.
-final class NoteSession {
-    enum VersionRule {
+public final class NoteSession {
+    public enum VersionRule {
         /// Only if 100 words have changed since the last version.
         case ifDue
         /// If anything changed since the last version (leaving a note, ⌘↩, quitting).
@@ -16,33 +15,33 @@ final class NoteSession {
         case never
     }
 
-    static let idleDelay: TimeInterval = 1
-    static let maxDelay: TimeInterval = 5
+    public static let idleDelay: TimeInterval = 1
+    public static let maxDelay: TimeInterval = 5
 
     private let store: Store
     private let saveStore: Store
     private let queue = DispatchQueue(label: "co.curry.blacktext.save", qos: .userInitiated)
 
-    private(set) var noteID: NoteID?
-    private(set) var isDirty = false
+    public private(set) var noteID: NoteID?
+    public private(set) var isDirty = false
     private var policy = VersionPolicy()
     private var firstUnsavedChange: Date?
     private var timer: Timer?
 
     /// The canvas text, read at save time.
-    var text: () -> String = { "" }
+    public var text: () -> String = { "" }
     /// Called on the main thread after a save lands, with the note's new summary.
-    var onSaved: ((NoteSummary) -> Void)?
+    public var onSaved: ((NoteSummary) -> Void)?
     /// Called when an empty note is discarded on leaving it.
-    var onDiscarded: ((NoteID) -> Void)?
+    public var onDiscarded: ((NoteID) -> Void)?
 
-    init(store: Store, saveStore: Store) {
+    public init(store: Store, saveStore: Store) {
         self.store = store
         self.saveStore = saveStore
     }
 
     /// Starts a session for `note` (nil = blank canvas). Call `leave()` on the previous one first.
-    func load(_ note: Note?) {
+    public func load(_ note: Note?) {
         timer?.invalidate()
         timer = nil
         noteID = note?.id
@@ -52,11 +51,11 @@ final class NoteSession {
         store.currentNoteID = noteID
     }
 
-    func record(replacing range: NSRange, in text: NSString, with replacement: String) {
+    public func record(replacing range: NSRange, in text: NSString, with replacement: String) {
         policy.record(replacing: range, in: text, with: replacement)
     }
 
-    func textDidChange() {
+    public func textDidChange() {
         isDirty = true
         let now = Date()
         if firstUnsavedChange == nil { firstUnsavedChange = now }
@@ -74,7 +73,7 @@ final class NoteSession {
     }
 
     /// Writes the canvas if it changed, and a version if the rule says so.
-    func save(version rule: VersionRule = .ifDue, source: String = "user", wait: Bool = false) {
+    public func save(version rule: VersionRule = .ifDue, source: String = "user", wait: Bool = false) {
         timer?.invalidate()
         timer = nil
         let wantsVersion: Bool
@@ -120,7 +119,7 @@ final class NoteSession {
     }
 
     /// Saves before leaving this note, and drops it if it never had anything in it.
-    func leave(wait: Bool = false) {
+    public func leave(wait: Bool = false) {
         save(version: .ifChanged, wait: wait)
         guard let id = noteID, text().allSatisfy(\.isWhitespace) else { return }
         let saveStore = self.saveStore
@@ -132,7 +131,7 @@ final class NoteSession {
     }
 
     /// Blocks until queued saves have landed.
-    func waitForSaves() {
+    public func waitForSaves() {
         queue.sync {}
     }
 }

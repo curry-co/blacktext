@@ -15,6 +15,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let sidebarButton: MonoButton
     private let themeButton: MonoButton
     private lazy var fieldEditor = MonoFieldEditor()
+    /// Called after this window writes to the database, so iCloud sync can send it right away.
+    var onLocalChange: (() -> Void)?
 
     init(store: Store, saveStore: Store, searchStore: Store) {
         self.store = store
@@ -149,10 +151,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         sidebar.noteDidSave(summary)
         // A blank canvas becomes a note on its first save; select it once, without scrolling on every save.
         if sidebar.mode == .notes, sidebar.currentNoteID != editor.noteID { sidebar.setCurrentNote(editor.noteID) }
+        onLocalChange?()
     }
 
     func editor(_ editor: EditorController, didDiscard noteID: NoteID) {
         sidebar.noteDidDisappear(noteID)
+        onLocalChange?()
     }
 
     func editorDidChangeText(_ editor: EditorController) {
@@ -231,6 +235,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             editor.open(noteID: nil)
         }
         try? store.softDelete(noteID: id)
+        onLocalChange?()
         sidebar.noteDidDisappear(id)
         window?.undoManager?.registerUndo(withTarget: self) { controller in
             controller.putBack(id)
@@ -241,6 +246,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private func putBack(_ id: NoteID) {
         try? store.putBack(noteID: id)
+        onLocalChange?()
         if sidebar.mode == .deleted {
             editor.exitPreview()
             sidebar.showRecentlyDeleted()
@@ -253,11 +259,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func openNewNote(text: String) {
         guard let id = try? store.createNote(text: text) else { return }
         _ = try? store.addVersion(noteID: id, text: text)
+        onLocalChange?()
         if sidebar.mode != .notes { sidebar.showNotes() }
         sidebar.reloadNotes()
         editor.open(noteID: id, caretAtEnd: true)
         show()
         editor.focusCanvas()
+    }
+
+    /// Notes changed on another device: refresh the canvas (unless you've typed since the last save)
+    /// and the sidebar.
+    func remoteNotesDidChange(_ ids: Set<NoteID>) {
+        editor.reloadAfterRemoteChange(ids)
+        switch sidebar.mode {
+        case .notes: sidebar.reloadNotes()
+        case .deleted: sidebar.showRecentlyDeleted()
+        default: break
+        }
     }
 
     /// Something outside the app changed the database (the CLI or an agent).

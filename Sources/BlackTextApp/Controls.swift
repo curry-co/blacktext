@@ -1,4 +1,5 @@
 import AppKit
+import BlackTextCore
 
 /// A small text toggle. On: inverted (like a find match). Off: gray text.
 final class MonoToggle: NSControl {

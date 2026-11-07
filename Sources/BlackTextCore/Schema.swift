@@ -2,16 +2,17 @@ import Foundation
 
 enum Schema {
     /// Each entry upgrades the schema by one version.
-    private static let migrations = [version1, version2]
+    private static let migrations = [version1, version2, version3]
     static var currentVersion: Int { migrations.count }
 
-    static func migrate(_ db: Database) throws {
-        guard try userVersion(db) < currentVersion else { return }
+    /// Upgrades to `target` (the latest by default; tests stop earlier to check an upgrade).
+    static func migrate(_ db: Database, to target: Int = currentVersion) throws {
+        guard try userVersion(db) < target else { return }
         try db.transaction {
             let from = try userVersion(db)
-            guard from < currentVersion else { return }
-            for sql in migrations[from...] { try db.execute(sql) }
-            try db.execute("PRAGMA user_version = \(currentVersion)")
+            guard from < target else { return }
+            for sql in migrations[from..<target] { try db.execute(sql) }
+            try db.execute("PRAGMA user_version = \(target)")
         }
     }
 
@@ -90,5 +91,61 @@ enum Schema {
         INSERT INTO notes_words(notes_words, rowid, text) VALUES ('delete', old.id, old.text);
         INSERT INTO notes_words(rowid, text) VALUES (new.id, new.text);
     END;
+    """
+
+    /// iCloud sync. Notes and versions get a global `uid` (the integer ids stay local), and triggers
+    /// record every change in `sync_outbox`, so edits from the app, the CLI and agents all get sent,
+    /// even when they happen while the app isn't running.
+    private static let version3 = """
+    ALTER TABLE notes ADD COLUMN uid TEXT;
+    ALTER TABLE versions ADD COLUMN uid TEXT;
+    UPDATE notes SET uid = lower(hex(randomblob(16)));
+    UPDATE versions SET uid = lower(hex(randomblob(16)));
+    CREATE UNIQUE INDEX notes_uid ON notes(uid);
+    CREATE UNIQUE INDEX versions_uid ON versions(uid);
+
+    -- What still has to be sent: one row per record, replaced by its newest change.
+    CREATE TABLE sync_outbox (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        uid TEXT NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (kind, uid) ON CONFLICT REPLACE
+    );
+    INSERT INTO sync_outbox (kind, uid) SELECT 'note', uid FROM notes;
+    INSERT INTO sync_outbox (kind, uid) SELECT 'version', uid FROM versions;
+
+    CREATE TRIGGER notes_sync_insert AFTER INSERT ON notes BEGIN
+        UPDATE notes SET uid = lower(hex(randomblob(16))) WHERE id = new.id AND uid IS NULL;
+        INSERT INTO sync_outbox (kind, uid) SELECT 'note', uid FROM notes WHERE id = new.id;
+    END;
+    CREATE TRIGGER notes_sync_update AFTER UPDATE OF text, created_at, updated_at, deleted_at ON notes BEGIN
+        INSERT INTO sync_outbox (kind, uid) VALUES ('note', new.uid);
+    END;
+    CREATE TRIGGER notes_sync_delete AFTER DELETE ON notes BEGIN
+        INSERT INTO sync_outbox (kind, uid, deleted) VALUES ('note', old.uid, 1);
+    END;
+    CREATE TRIGGER versions_sync_insert AFTER INSERT ON versions BEGIN
+        UPDATE versions SET uid = lower(hex(randomblob(16))) WHERE id = new.id AND uid IS NULL;
+        INSERT INTO sync_outbox (kind, uid) SELECT 'version', uid FROM versions WHERE id = new.id;
+    END;
+
+    -- CloudKit's bookkeeping for each note record (its change tag), so the next save is accepted.
+    CREATE TABLE sync_records (
+        uid TEXT PRIMARY KEY,
+        system_fields BLOB NOT NULL
+    ) WITHOUT ROWID;
+
+    -- Versions that arrived before their note did.
+    CREATE TABLE sync_orphans (
+        uid TEXT PRIMARY KEY,
+        note_uid TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        word_count INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        compressed INTEGER NOT NULL,
+        body BLOB NOT NULL
+    );
+    CREATE INDEX sync_orphans_by_note ON sync_orphans(note_uid);
     """
 }
