@@ -185,14 +185,67 @@ import CloudKit
         #expect(CloudSync.note(from: record) == note)
     }
 
-    @Test func hugeNotesTravelAsAnAsset() throws {
+    /// About 2.9 MB of text that LZFSE can't shrink below the inline limit.
+    static let hugeText: String = {
         var generator = SystemRandomNumberGenerator()
-        let text = (0..<400_000).map { _ in String(UInt32.random(in: 0...UInt32.max, using: &generator), radix: 36) }.joined(separator: " ")
-        let note = SyncNote(uid: "big", text: text, createdAt: Date(), editedAt: Date(), deletedAt: nil, device: "Mac")
-        let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, note.uid))
+        return (0..<400_000).map { _ in String(UInt32.random(in: 0...UInt32.max, using: &generator), radix: 36) }.joined(separator: " ")
+    }()
+
+    static func hugeRecord(_ uid: String) -> CKRecord {
+        let note = SyncNote(uid: uid, text: hugeText, createdAt: Date(), editedAt: Date(), deletedAt: nil, device: "Mac")
+        let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, uid))
         CloudSync.fill(record, with: note)
-        #expect(record["bodyAsset"] as? CKAsset != nil)
-        #expect(CloudSync.note(from: record)?.text == text)
+        return record
+    }
+
+    static func assetData(_ record: CKRecord) throws -> Data {
+        try Data(contentsOf: try #require((record["bodyAsset"] as? CKAsset)?.fileURL))
+    }
+
+    @Test func hugeNotesTravelAsAnEncryptedAsset() throws {
+        let record = Self.hugeRecord("big")
+        let packed = Compression.pack(Self.hugeText).data
+        let stored = try Self.assetData(record)
+        #expect(record.encryptedValues["body"] as Data? == nil)
+        #expect((record.encryptedValues["bodyKey"] as Data?)?.count == 32)
+        #expect(stored.count == packed.count + 28, "nonce, ciphertext and tag")
+        #expect(stored.range(of: packed.prefix(64)) == nil, "the asset holds no plaintext")
+        #expect(stored.range(of: Data(Self.hugeText.prefix(64).utf8)) == nil)
+        #expect(CloudSync.note(from: record)?.text == Self.hugeText)
+    }
+
+    @Test func eachHugeBodyGetsItsOwnKey() throws {
+        let one = Self.hugeRecord("one"), two = Self.hugeRecord("two")
+        #expect(one.encryptedValues["bodyKey"] as Data? != two.encryptedValues["bodyKey"] as Data?)
+    }
+
+    @Test func aTamperedAssetIsRejected() throws {
+        let record = Self.hugeRecord("tampered")
+        let url = try #require((record["bodyAsset"] as? CKAsset)?.fileURL)
+        var stored = try Data(contentsOf: url)
+        stored[stored.count / 2] ^= 0x01
+        try stored.write(to: url)
+        #expect(CloudSync.note(from: record) == nil)
+    }
+
+    @Test func unencryptedAssetsFromEarlierBuildsStillRead() throws {
+        let packed = Compression.pack(Self.hugeText)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-\(UUID().uuidString)")
+        try packed.data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, "legacy"))
+        record["compressed"] = packed.compressed ? 1 : 0
+        record["editedAt"] = Date()
+        record["bodyAsset"] = CKAsset(fileURL: url)
+        #expect(CloudSync.note(from: record)?.text == Self.hugeText)
+    }
+
+    @Test func shrinkingANoteDropsTheAssetAndKey() throws {
+        let record = Self.hugeRecord("shrinks")
+        CloudSync.fill(record, with: SyncNote(uid: "shrinks", text: "short now", createdAt: Date(), editedAt: Date(), deletedAt: nil, device: "Mac"))
+        #expect(record["bodyAsset"] as? CKAsset == nil)
+        #expect(record.encryptedValues["bodyKey"] as Data? == nil)
+        #expect(CloudSync.note(from: record)?.text == "short now")
     }
 
     @Test func versionsPointAtTheirNote() throws {

@@ -1,5 +1,6 @@
 #if canImport(CloudKit)
 import CloudKit
+import CryptoKit
 import Foundation
 import os
 
@@ -7,7 +8,8 @@ import os
 ///
 /// Apple's `CKSyncEngine` does the scheduling, batching, retries and push notifications. This class
 /// only translates between SQLite rows and CloudKit records. Note text and version bodies go in
-/// encrypted fields, which are end-to-end encrypted with keys in the user's iCloud Keychain.
+/// encrypted fields, which are end-to-end encrypted with keys in the user's iCloud Keychain. A body
+/// too big for a field travels as an asset that this class encrypts itself (see `setBody`).
 ///
 /// What to send comes from the database's `sync_outbox`, filled by triggers, so edits made by the
 /// CLI or agents (even while the app was closed) are sent too.
@@ -15,7 +17,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     public static let containerIdentifier = "iCloud.co.curry.blacktext"
     static let zoneID = CKRecordZone.ID(zoneName: "Notes", ownerName: CKCurrentUserDefaultName)
     static let stateKey = "sync_engine_state"
-    /// A record holds at most 1 MB; compressed bodies bigger than this travel as an asset instead.
+    /// A record holds at most 1 MB; compressed bodies bigger than this travel as an encrypted asset instead.
     static let inlineLimit = 900_000
     /// How many outbox rows to hand the engine at once, so a first upload of years of notes stays small in memory.
     static let queueChunk = 2_000
@@ -318,29 +320,44 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         record["note"] = CKRecord.Reference(recordID: recordID(.note, version.noteUID), action: .deleteSelf)
     }
 
-    /// Small bodies go in an encrypted field; very big ones (over ~900 KB compressed) as an asset.
+    /// Small bodies go in an encrypted field. Very big ones (over ~900 KB compressed) travel as an asset, which
+    /// CloudKit encrypts end to end only for people who turned on Advanced Data Protection. So the asset holds
+    /// AES-GCM ciphertext under a key made for this record alone, and the key goes in an encrypted field.
     private static func setBody(_ packed: (data: Data, compressed: Bool), on record: CKRecord, name: String) {
         record["compressed"] = packed.compressed ? 1 : 0
         if packed.data.count <= inlineLimit {
             record.encryptedValues["body"] = packed.data
+            record.encryptedValues["bodyKey"] = nil as Data?
             record["bodyAsset"] = nil as CKAsset?
-        } else {
-            let url = assetDirectory.appendingPathComponent(name)
-            try? FileManager.default.createDirectory(at: assetDirectory, withIntermediateDirectories: true)
-            try? packed.data.write(to: url, options: .atomic)
-            record["bodyAsset"] = CKAsset(fileURL: url)
-            record.encryptedValues["body"] = nil as Data?
+            return
         }
+        record.encryptedValues["body"] = nil as Data?
+        let key = SymmetricKey(size: .bits256)
+        // Sealing with a fresh key and a random nonce can't fail; if it somehow did, send no body rather than plaintext.
+        guard let sealed = try? AES.GCM.seal(packed.data, using: key).combined else {
+            record.encryptedValues["bodyKey"] = nil as Data?
+            record["bodyAsset"] = nil as CKAsset?
+            return
+        }
+        let url = assetDirectory.appendingPathComponent(name)
+        try? FileManager.default.createDirectory(at: assetDirectory, withIntermediateDirectories: true)
+        try? sealed.write(to: url, options: .atomic)
+        record.encryptedValues["bodyKey"] = key.withUnsafeBytes { Data($0) }
+        record["bodyAsset"] = CKAsset(fileURL: url)
     }
 
-    /// The body bytes as stored (compressed or not), from the encrypted field or the asset.
+    /// The body bytes as stored (compressed or not), from the encrypted field or the decrypted asset.
+    /// Nil when the asset was tampered with or its key is wrong.
     private static func body(of record: CKRecord) -> (data: Data, compressed: Bool)? {
         let compressed = (record["compressed"] as? Int64 ?? 0) != 0
         if let inline: Data = record.encryptedValues["body"] { return (inline, compressed) }
-        if let asset = record["bodyAsset"] as? CKAsset, let url = asset.fileURL, let data = try? Data(contentsOf: url) {
-            return (data, compressed)
-        }
-        return nil
+        guard let asset = record["bodyAsset"] as? CKAsset, let url = asset.fileURL,
+              let stored = try? Data(contentsOf: url) else { return nil }
+        // The first builds with sync uploaded assets unencrypted, with no key.
+        guard let key: Data = record.encryptedValues["bodyKey"] else { return (stored, compressed) }
+        guard let box = try? AES.GCM.SealedBox(combined: stored),
+              let data = try? AES.GCM.open(box, using: SymmetricKey(data: key)) else { return nil }
+        return (data, compressed)
     }
 
     static func note(from record: CKRecord) -> SyncNote? {
