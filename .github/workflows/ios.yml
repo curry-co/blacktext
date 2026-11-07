@@ -1,25 +1,31 @@
 name: iOS
 
 on:
+  pull_request:
   push:
-    branches: [ios, "ios/**"]
-    paths-ignore: ["**.md", "design/**"]
+    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build:
+  # Builds for the Simulator and takes screenshots, with no secrets, so it's safe for any pull request.
+  # "ios" is a required check on main; renaming the job means updating the ruleset.
+  ios:
     runs-on: macos-26
     timeout-minutes: 60
     env:
       SIMULATOR: iPhone 17
-      # Uploading to TestFlight needs these repo secrets; without them the job stops after the screenshots.
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
       - name: Tools
         run: |
@@ -40,15 +46,52 @@ jobs:
       - name: Screenshots
         run: scripts/ios-screenshots.sh build/ios/Build/Products/Debug-iphonesimulator/BlackText.app build/screenshots
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: screenshots
           path: build/screenshots
           if-no-files-found: ignore
 
+  # Signs and uploads to TestFlight. Only for release tags and manual runs, never for pull requests,
+  # and only inside the testflight environment, which holds the signing secrets.
+  testflight:
+    needs: ios
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: testflight
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the secrets and the version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_KEY_P8" ]; then
+            echo "::error::The App Store Connect secrets aren't available to the testflight environment."
+            exit 1
+          fi
+          VERSION=$(sed -n 's/.*static let version = "\(.*\)".*/\1/p' Sources/BlackTextCore/Version.swift)
+          if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "v$VERSION" ]; then
+            echo "::error::Tag $REF_NAME doesn't match Version.swift ($VERSION)."
+            exit 1
+          fi
+
+      - name: Tools
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        run: cd iOS && xcodegen generate
+
       - name: Archive and upload to TestFlight
-        if: env.ASC_KEY_ID != ''
         env:
           BUILD_NUMBER: ${{ github.run_number }}
         run: scripts/ios-testflight.sh

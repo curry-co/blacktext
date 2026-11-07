@@ -321,7 +321,7 @@ Keep what works: the principles, the keyboard table, Agents, the command line an
    - A **draft** GitHub Release with the DMG and checksum.
    - Notes generated from labels (`.github/release.yml`), under a short hand-written summary.
    - Publishing the draft is the human gate.
-4. **`ios`** (`testflight` environment): archives at the tag's version and uploads to TestFlight.
+4. **TestFlight.** No job needed here: the same tag runs `ios.yml`'s `testflight` job, which archives at the tag's version and uploads.
 5. **`homebrew`.** When the release is published, a job bumps the cask in `curry-co/homebrew-tap`. It uses a fine-grained token that can write only to that repo.
 
 **The Homebrew tap.** `curry-co/homebrew-tap` is a new public repo, so it's your call. Then `brew install --cask curry-co/tap/blacktext` works:
