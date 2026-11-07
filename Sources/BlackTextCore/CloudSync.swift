@@ -93,13 +93,14 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         if !superseded.isEmpty { engine.state.remove(pendingRecordZoneChanges: superseded) }
         let new = (saves + deletes).filter { !pending.contains($0) }
         if !new.isEmpty { engine.state.add(pendingRecordZoneChanges: new) }
-        Task { try? await engine.sendChanges() }
+        // Detached: this also runs inside engine callbacks, and CloudKit forbids awaiting it from there.
+        Task.detached { try? await engine.sendChanges() }
     }
 
     /// Fetches now, for a push notification or the app coming to the front.
     public func fetchNow() {
         guard let engine = currentEngine() else { return }
-        Task { try? await engine.fetchChanges() }
+        Task.detached { try? await engine.fetchChanges() }
     }
 
     private func currentEngine() -> CKSyncEngine? {
