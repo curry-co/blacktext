@@ -37,9 +37,9 @@ shoot() { # name, appearance, launch arguments…
   echo "Saved $name.png"
 }
 
-shoot canvas-light light
+shoot canvas-light light -BTScreenshot canvas
 shoot sidebar-light light -BTScreenshot sidebar
 shoot find-light light -BTScreenshot find
-shoot canvas-dark dark
+shoot canvas-dark dark -BTScreenshot canvas
 shoot sidebar-dark dark -BTScreenshot sidebar
 xcrun simctl terminate "$DEVICE" "$BUNDLE" || true

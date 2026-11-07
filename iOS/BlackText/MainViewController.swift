@@ -139,8 +139,8 @@ final class MainViewController: UIViewController, EditorControllerDelegate, Side
         guard !hasAppeared else { return }
         hasAppeared = true
         sidebar.revealSelection()
-        // Ready to type: the cursor is at the end of the last note.
-        editor.focusCanvas()
+        // Ready to type: the cursor is at the end of the last note (unless the sidebar is over it).
+        if isDocked || !isSidebarShown { editor.focusCanvas() }
     }
 
     override func viewWillLayoutSubviews() {

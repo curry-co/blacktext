@@ -69,9 +69,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         sync.start()
     }
 
-    /// `-BTScreenshot sidebar|find` puts the app in a state for CI's Simulator screenshots.
+    /// `-BTScreenshot canvas|sidebar|find` opens the newest note and puts the app in a state for CI's
+    /// Simulator screenshots.
     private func showScreenshotState() {
-        guard let main, let state = UserDefaults.standard.string(forKey: "BTScreenshot") else { return }
+        guard let main, let store, let state = UserDefaults.standard.string(forKey: "BTScreenshot") else { return }
+        if let newest = try? store.notes(limit: 1).first { main.editor.open(noteID: newest.id, caretAtEnd: true) }
         switch state {
         case "sidebar": main.toggleNoteSidebar()
         case "find": main.find.showForScreenshot(query: "the")
