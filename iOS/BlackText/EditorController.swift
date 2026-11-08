@@ -533,7 +533,7 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
         case .version(let version):
             guard let loaded = try? store.version(id: version.id) else { return }
             text = loaded.text
-            let by = version.agentName.map { " · by \($0)" } ?? ""
+            let by = version.origin.map { " · \($0)" } ?? ""
             label = "\(Format.dateTime(version.createdAt)) · \(Format.words(version.wordCount))\(by)"
             actions = [
                 ("Copy", { [weak self] in self?.copyPreview() }),

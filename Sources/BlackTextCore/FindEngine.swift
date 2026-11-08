@@ -30,9 +30,10 @@ public enum FindError: Error, Equatable {
 
 /// Find and replace over UTF-16 ranges, so results map directly onto NSTextView.
 public enum FindEngine {
-    /// Letters, digits and underscore count as word characters for "whole word".
-    private static let wordBefore = "(?<![\\p{L}\\p{N}_])"
-    private static let wordAfter = "(?![\\p{L}\\p{N}_])"
+    /// Letters, digits, combining marks (which belong to the letter before them) and underscore count as
+    /// word characters for "whole word", with or without regex.
+    private static let wordBefore = "(?<![\\p{L}\\p{M}\\p{N}_])"
+    private static let wordAfter = "(?![\\p{L}\\p{M}\\p{N}_])"
 
     /// A compiled matcher for regex queries; nil for plain text, which uses a faster literal scan.
     public static func regex(for query: FindQuery) throws -> NSRegularExpression? {
@@ -49,7 +50,8 @@ public enum FindEngine {
         }
     }
 
-    /// Every match of `query` in `text`, in order. Zero-length regex matches are skipped.
+    /// Every match of `query` in `text`, in order, up to `limit`. Zero-length regex matches are skipped.
+    /// `isCancelled` is asked as the search goes, so a cancelled search stops within a match or so.
     public static func matches(of query: FindQuery, in text: NSString, limit: Int = 500_000,
                                isCancelled: () -> Bool = { false }) throws -> [NSRange] {
         guard !query.isEmpty, text.length > 0 else { return [] }
@@ -62,7 +64,8 @@ public enum FindEngine {
                     results.append(range)
                     if results.count >= limit { stop.pointee = true }
                 }
-                if results.count % 512 == 0, isCancelled() { stop.pointee = true }
+                // Called for each match and, between matches, as the scan goes (.reportProgress).
+                if isCancelled() { stop.pointee = true }
             }
             return results
         }
@@ -71,8 +74,7 @@ public enum FindEngine {
         if !query.options.matchCase { compare.insert(.caseInsensitive) }
         let wholeWord = query.options.wholeWord
         var searchRange = whole
-        var scanned = 0
-        while searchRange.length > 0 {
+        while searchRange.length > 0, !isCancelled() {
             let found = text.range(of: query.text, options: compare, range: searchRange)
             guard found.location != NSNotFound, found.length > 0 else { break }
             var next = found.location + found.length
@@ -82,24 +84,53 @@ public enum FindEngine {
             } else {
                 next = found.location + 1
             }
-            scanned += 1
-            if scanned % 512 == 0, isCancelled() { break }
             searchRange = NSRange(location: next, length: whole.length - next)
         }
         return results
     }
 
-    /// Letters, digits and underscore are word characters; a whole word has neither on either side.
+    /// A whole word has no word character (see `wordBefore`) on either side. Characters outside the Basic
+    /// Multilingual Plane (emoji, many CJK ideographs) are read whole from their surrogate pair.
     private static func isWholeWord(_ range: NSRange, in text: NSString) -> Bool {
-        func isWordCharacter(_ unit: unichar) -> Bool {
-            if unit == 0x5F { return true }
-            guard let scalar = UnicodeScalar(unit) else { return true } // half of a surrogate pair: a letter, not a boundary
-            return CharacterSet.alphanumerics.contains(scalar)
-        }
-        if range.location > 0, isWordCharacter(text.character(at: range.location - 1)) { return false }
+        if range.location > 0, isWordCharacter(scalar(endingAt: range.location, in: text)) { return false }
         let end = NSMaxRange(range)
-        if end < text.length, isWordCharacter(text.character(at: end)) { return false }
+        if end < text.length, isWordCharacter(scalar(startingAt: end, in: text)) { return false }
         return true
+    }
+
+    static func isWordCharacter(_ scalar: Unicode.Scalar?) -> Bool {
+        guard let scalar else { return false }
+        if scalar == "_" { return true }
+        switch scalar.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .nonspacingMark, .spacingMark, .enclosingMark,
+             .decimalNumber, .letterNumber, .otherNumber:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func pair(_ lead: unichar, _ trail: unichar) -> Unicode.Scalar? {
+        Unicode.Scalar(0x10000 + (UInt32(lead) - 0xD800) << 10 + (UInt32(trail) - 0xDC00))
+    }
+
+    private static func scalar(startingAt index: Int, in text: NSString) -> Unicode.Scalar? {
+        let unit = text.character(at: index)
+        if UTF16.isLeadSurrogate(unit), index + 1 < text.length {
+            let trail = text.character(at: index + 1)
+            if UTF16.isTrailSurrogate(trail) { return pair(unit, trail) }
+        }
+        return Unicode.Scalar(unit)
+    }
+
+    private static func scalar(endingAt index: Int, in text: NSString) -> Unicode.Scalar? {
+        let unit = text.character(at: index - 1)
+        if UTF16.isTrailSurrogate(unit), index >= 2 {
+            let lead = text.character(at: index - 2)
+            if UTF16.isLeadSurrogate(lead) { return pair(lead, unit) }
+        }
+        return Unicode.Scalar(unit)
     }
 
     /// The text that replaces the match at `range`.
@@ -116,19 +147,22 @@ public enum FindEngine {
         return result
     }
 
-    /// Replaces every match. Returns the new text and how many matches were replaced.
+    /// Replaces every match, however many there are. Returns the new text and how many were replaced.
     public static func replaceAll(in text: String, query: FindQuery, template: String,
                                   preserveCase: Bool = false) throws -> (text: String, count: Int) {
         let source = text as NSString
-        let ranges = try matches(of: query, in: source)
+        let ranges = try matches(of: query, in: source, limit: .max)
         guard !ranges.isEmpty else { return (text, 0) }
         let regex = try regex(for: query)
-        let output = NSMutableString(string: source)
-        for range in ranges.reversed() {
-            let piece = replacement(for: range, in: source, query: query, template: template,
-                                    preserveCase: preserveCase, regex: regex)
-            output.replaceCharacters(in: range, with: piece)
+        let output = NSMutableString(capacity: source.length)
+        var copied = 0
+        for range in ranges {
+            output.append(source.substring(with: NSRange(location: copied, length: range.location - copied)))
+            output.append(replacement(for: range, in: source, query: query, template: template,
+                                      preserveCase: preserveCase, regex: regex))
+            copied = NSMaxRange(range)
         }
+        output.append(source.substring(from: copied))
         return (output as String, ranges.count)
     }
 
@@ -154,5 +188,44 @@ public enum FindEngine {
             return head.uppercased() + replacement.dropFirst()
         }
         return replacement
+    }
+}
+
+/// Spellings to look a case-insensitive search up by in an index, so the index finds every note the search
+/// itself would. Searching folds case fully (Straße matches "strasse", ﬁ matches "fi"), but the indexes fold
+/// one character at a time, so a note spelled with ß or a ligature is only found under that spelling.
+enum SearchSpellings {
+    /// Characters whose full case folding is plain letters.
+    static let expansions: [(letters: String, characters: [Character])] = [
+        ("ffi", ["\u{FB03}"]), ("ffl", ["\u{FB04}"]), ("ff", ["\u{FB00}"]), ("fi", ["\u{FB01}"]), ("fl", ["\u{FB02}"]),
+        ("ss", ["\u{00DF}", "\u{1E9E}"]), ("st", ["\u{FB05}", "\u{FB06}"]),
+    ]
+    /// One-letter folds that SQLite's indexes handle but LIKE doesn't: the Kelvin sign and the long s.
+    static let singles: [Character: [Character]] = ["k": ["\u{212A}"], "s": ["\u{017F}"]]
+
+    /// Every spelling of `text` that a case-insensitive search would match, or nil if there are too many
+    /// to look up, or it has cased letters beyond ASCII whose folding the indexes may not share (then the
+    /// caller scans instead). `forLike` adds the one-letter folds and both cases of each character.
+    static func of(_ text: String, forLike: Bool = false, limit: Int = 48) -> [String]? {
+        let folded = text.folding(options: .caseInsensitive, locale: nil)
+        let simple = folded.unicodeScalars.allSatisfy { $0.isASCII || (!$0.properties.isCased && !$0.properties.changesWhenCaseFolded) }
+        guard simple else { return nil }
+        let characters = Array(folded)
+        var spellings: [String] = []
+        func walk(_ index: Int, _ prefix: String) -> Bool {
+            guard index < characters.count else {
+                spellings.append(prefix)
+                return spellings.count <= limit
+            }
+            var options: [(piece: String, length: Int)] = [(String(characters[index]), 1)]
+            for (letters, replacements) in expansions where index + letters.count <= characters.count
+                && String(characters[index..<index + letters.count]) == letters {
+                options += replacements.map { (String($0), letters.count) }
+            }
+            if forLike, let replacements = singles[characters[index]] { options += replacements.map { (String($0), 1) } }
+            for option in options where !walk(index + option.length, prefix + option.piece) { return false }
+            return true
+        }
+        return walk(0, "") ? spellings : nil
     }
 }

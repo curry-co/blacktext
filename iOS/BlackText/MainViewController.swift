@@ -272,6 +272,7 @@ final class MainViewController: UIViewController, EditorControllerDelegate, Side
 
     func editor(_ editor: EditorController, didSave summary: NoteSummary) {
         sidebar.noteDidSave(summary)
+        find.refreshAllNotes(debounce: true)
         // A blank canvas becomes a note on its first save; select it once, without scrolling on every save.
         if sidebar.mode == .notes, sidebar.currentNoteID != editor.noteID { sidebar.setCurrentNote(editor.noteID) }
         onLocalChange?()

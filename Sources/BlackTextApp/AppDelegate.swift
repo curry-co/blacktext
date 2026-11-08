@@ -293,7 +293,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let bin = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin", isDirectory: true)
             try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
             let link = bin.appendingPathComponent("blacktext")
-            try? FileManager.default.removeItem(at: link)
+            // Replace a link (an earlier install), but not something else of the same name.
+            if let existing = try? FileManager.default.attributesOfItem(atPath: link.path) {
+                guard existing[.type] as? FileAttributeType == .typeSymbolicLink else {
+                    throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: link.path,
+                        NSLocalizedDescriptionKey: "\(link.path) already exists and isn't a link to BlackText. Move it aside and try again."])
+                }
+                try FileManager.default.removeItem(at: link)
+            }
             try FileManager.default.createSymbolicLink(at: link, withDestinationURL: cliURL)
             alert.messageText = "Installed blacktext in ~/.local/bin"
             alert.informativeText = "Try: blacktext help\n\nIf your shell can't find it, add ~/.local/bin to your PATH."
@@ -312,6 +319,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         panel.prompt = "Export"
         panel.message = "Choose where to put a folder of .txt files, one per note."
         guard panel.runModal() == .OK, let destination = panel.url else { return }
+        // Include what's in the canvas now.
+        windowController?.editor.flush()
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try Exporter.export(to: destination) }
             DispatchQueue.main.async {
@@ -320,6 +329,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     NSWorkspace.shared.activateFileViewerSelecting([folder])
                 case .failure(let error):
                     NSAlert(error: error).runModal()
+                }
+            }
+        }
+    }
+
+    /// File → Back Up Notes…: one file with everything (history and Recently Deleted too), unlike the
+    /// text export. To restore it, quit BlackText and put it in place of the notes file.
+    @objc func backUpNotes(_ sender: Any?) {
+        let panel = NSSavePanel()
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyy-MM-dd"
+        panel.nameFieldStringValue = "BlackText backup \(stamp.string(from: Date())).sqlite"
+        panel.message = "A complete copy of your notes, with their history. To restore it, quit BlackText and put it in place of \(Paths.databaseURL.path)."
+        guard panel.runModal() == .OK, let destination = panel.url, let store else { return }
+        windowController?.editor.flush()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try store.writeBackup(to: destination) }
+            DispatchQueue.main.async {
+                switch result {
+                case .success: NSWorkspace.shared.activateFileViewerSelecting([destination])
+                case .failure(let error): NSAlert(error: error).runModal()
                 }
             }
         }
@@ -361,8 +391,7 @@ enum Exporter {
         fileStamp.dateFormat = "yyyy-MM-dd HHmm"
         var used = Set<String>()
         try store.forEachNote { note in
-            let title = note.title.isEmpty ? "Empty note" : String(note.title.prefix(60))
-            let safe = title.map { "/:\\".contains($0) ? "-" : $0 }.reduce(into: "") { $0.append($1) }
+            let safe = fileName(note.title)
             var name = "\(fileStamp.string(from: note.createdAt)) \(safe)"
             var counter = 2
             while used.contains(name.lowercased()) {
@@ -375,5 +404,23 @@ enum Exporter {
             try? FileManager.default.setAttributes([.creationDate: note.createdAt, .modificationDate: note.updatedAt], ofItemAtPath: file.path)
         }
         return folder
+    }
+
+    /// A note's title as a file name: path separators and control characters become "-", no leading dot,
+    /// and at most 150 bytes of UTF-8 (whole characters), so the full name stays inside the 255-byte limit.
+    static func fileName(_ title: String) -> String {
+        var name = ""
+        var bytes = 0
+        for character in title {
+            let safe: Character = "/:\\".contains(character) || character.unicodeScalars.contains { $0.properties.generalCategory == .control }
+                ? "-" : character
+            let size = String(safe).utf8.count
+            guard bytes + size <= 150 else { break }
+            name.append(safe)
+            bytes += size
+        }
+        while name.hasPrefix(".") { name.removeFirst() }
+        name = name.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Empty note" : name
     }
 }

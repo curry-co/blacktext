@@ -62,6 +62,8 @@ public enum SyncSuspension: String, Sendable {
     case encryptedDataReset
     /// This device is signed in to a different iCloud account from the one these notes sync with.
     case otherAccount
+    /// The notes were put back from a backup, whose sync bookkeeping is from another time.
+    case restoredBackup
 
     public var explanation: String {
         switch self {
@@ -71,6 +73,8 @@ public enum SyncSuspension: String, Sendable {
             return "Your encrypted iCloud data was reset. The notes on this device are all still here, but they won't be sent to iCloud again unless you turn sync back on."
         case .otherAccount:
             return "This device is signed in to a different iCloud account. Your notes stay on this device and nothing is sent until you choose to sync them with this account."
+        case .restoredBackup:
+            return "These notes were restored from a backup. Nothing is sent to iCloud until you turn sync on; then they're merged with what's there, and where a note differs, both texts are kept."
         }
     }
 }
@@ -94,6 +98,12 @@ extension VersionSummary {
     /// For versions kept when two devices edited a note at once: the device whose text it was.
     public var deviceName: String? {
         source.hasPrefix("device:") ? String(source.dropFirst("device:".count)) : nil
+    }
+
+    /// Where a version came from, for showing beside it: "by claude-code" for an agent's edit, "from iPhone"
+    /// for text kept when two devices edited the note at once. Nil for the user's own versions.
+    public var origin: String? {
+        agentName.map { "by \($0)" } ?? deviceName.map { "from \($0)" }
     }
 }
 
