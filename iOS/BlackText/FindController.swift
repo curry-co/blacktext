@@ -14,6 +14,8 @@ final class FindController: NSObject, UITextFieldDelegate {
 
     /// Notes up to this size are searched on the main thread, synchronously, on every keystroke.
     static let synchronousLimit = 200_000
+    /// Matches shown in a note are counted up to this many (Replace All replaces them all regardless).
+    static let matchLimit = 500_000
 
     let editor: EditorController
     let sidebar: SidebarController
@@ -114,6 +116,9 @@ final class FindController: NSObject, UITextFieldDelegate {
     /// Closes the bar, leaving the current match selected so typing replaces it.
     func hide() {
         guard isVisible else { return }
+        // Anything still searching is for a bar that's gone.
+        _ = noteGeneration.next()
+        _ = allGeneration.next()
         commitHistory()
         lastQueryText = searchText
         let textView = editor.activeTextView
@@ -211,13 +216,16 @@ final class FindController: NSObject, UITextFieldDelegate {
         } else if matches.isEmpty {
             label = "No results"
         } else {
-            label = "\(Format.number((current ?? 0) + 1)) of \(Format.number(matches.count))"
+            // Counting stops at FindEngine's limit; say so rather than give a wrong total.
+            let more = matches.count >= Self.matchLimit ? "+" : ""
+            label = "\(Format.number((current ?? 0) + 1)) of \(Format.number(matches.count))\(more)"
         }
         bar.countLabel.text = label
         let canReplace = editor.preview == nil && !matches.isEmpty
         bar.replaceButton.isEnabled = canReplace
         bar.replaceAllButton.isEnabled = canReplace
-        bar.replaceAllButton.setText(matches.isEmpty ? "Replace All" : "Replace All (\(Format.number(matches.count)))")
+        let more = matches.count >= Self.matchLimit ? "+" : ""
+        bar.replaceAllButton.setText(matches.isEmpty ? "Replace All" : "Replace All (\(Format.number(matches.count))\(more))")
     }
 
     private func updateMarks() {
@@ -318,6 +326,8 @@ final class FindController: NSObject, UITextFieldDelegate {
     /// The canvas changed (typing, or another note opened): refresh matches without jumping.
     func editorTextDidChange() {
         guard isVisible else { return }
+        // A search still running is for the old text; its ranges mustn't land on the new one.
+        _ = noteGeneration.next()
         editDebounce?.cancel()
         editDebounce = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
@@ -334,10 +344,10 @@ final class FindController: NSObject, UITextFieldDelegate {
         recompute(anchor: 0, reveal: true)
     }
 
-    /// Sync changed the database: run the all-notes search again.
-    func refreshAllNotes() {
+    /// Notes changed (a save, sync): run the all-notes search again.
+    func refreshAllNotes(debounce: Bool = false) {
         guard isVisible, scope == .allNotes else { return }
-        searchAllNotes(debounce: false)
+        searchAllNotes(debounce: debounce)
     }
 
     // MARK: Replace
@@ -364,7 +374,7 @@ final class FindController: NSObject, UITextFieldDelegate {
         let query = self.query
         let template = bar.replaceField.text ?? ""
         let text = editor.textView.textStorage.mutableString
-        guard let ranges = try? FindEngine.matches(of: query, in: text), !ranges.isEmpty else { return }
+        guard let ranges = try? FindEngine.matches(of: query, in: text, limit: .max), !ranges.isEmpty else { return }
         let regex = try? FindEngine.regex(for: query)
         let pieces = ranges.map {
             FindEngine.replacement(for: $0, in: text, query: query, template: template, preserveCase: preserveCase, regex: regex)
@@ -395,6 +405,8 @@ final class FindController: NSObject, UITextFieldDelegate {
 
     /// Searches every note on a background connection; only the newest search gets shown.
     private func runAllNotesSearch(_ query: FindQuery, generation: Int) {
+        // Search what's in the canvas too, not just what was saved a moment ago.
+        editor.session.save(version: .never, wait: true)
         let store = searchStore
         let generations = allGeneration
         allQueue.async { [weak self] in

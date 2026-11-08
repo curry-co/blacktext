@@ -300,6 +300,23 @@ public final class Store: @unchecked Sendable {
         }
     }
 
+    /// Writes a complete copy of the library to `url` (every note, its history, Recently Deleted), from one
+    /// consistent moment. The copy's sync bookkeeping is cleared and its sync stopped, so if it's ever put
+    /// back it doesn't sync until the user says so.
+    public func writeBackup(to url: URL) throws {
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        try locked { try db.run("VACUUM INTO ?", .text(url.path)) }
+        let copy = try Database(path: url.path)
+        try copy.transaction {
+            try copy.execute("""
+                DELETE FROM sync_records;
+                DELETE FROM state WHERE key IN ('sync_engine_state', 'current_note');
+                INSERT INTO state (key, value) VALUES ('sync_suspended', 'restoredBackup')
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+                """)
+        }
+    }
+
     /// Visits every live note, oldest first. Used by export.
     public func forEachNote(_ body: (Note) throws -> Void) throws {
         try locked {
@@ -459,9 +476,12 @@ public final class Store: @unchecked Sendable {
     /// Searches every live note, most recently edited first.
     ///
     /// Two passes keep this fast at any size. First the newest notes are read directly, which fills
-    /// the results almost at once for common words. If that isn't enough, older notes are streamed
-    /// from an index (trigram for substrings, words for whole words), newest first, stopping at
-    /// `limit`; each candidate is confirmed with `FindEngine` using the exact options.
+    /// the results almost at once for common words. If that isn't enough, older notes are read in edit
+    /// order, narrowed by an index (trigram for substrings, words for whole words), stopping at `limit`;
+    /// each candidate is confirmed with `FindEngine` using the exact options.
+    /// Matches are counted up to this many in each note.
+    public static let matchCountLimit = 10_000
+
     public func search(_ query: FindQuery, limit: Int = 100, scanBudget: Int = 2_000_000,
                        isCancelled: () -> Bool = { false }) throws -> [SearchHit] {
         guard !query.isEmpty else { return [] }
@@ -473,11 +493,12 @@ public final class Store: @unchecked Sendable {
             var hits: [SearchHit] = []
             func consider(_ row: Statement) throws {
                 let text = row.text(7) as NSString
-                let ranges = try FindEngine.matches(of: query, in: text, limit: 10_000, isCancelled: isCancelled)
+                let ranges = try FindEngine.matches(of: query, in: text, limit: Self.matchCountLimit, isCancelled: isCancelled)
                 guard !ranges.isEmpty else { return }
                 let snippet = Snippet.make(in: text, matches: ranges)
                 hits.append(SearchHit(note: summary(from: row), matchCount: ranges.count,
-                                      snippet: snippet.text, snippetMatches: snippet.matches))
+                                      snippet: snippet.text, snippetMatches: snippet.matches,
+                                      isCountCapped: ranges.count >= Self.matchCountLimit))
             }
 
             // Pass 1: the newest notes, read directly.
@@ -494,49 +515,57 @@ public final class Store: @unchecked Sendable {
             recent.reset()
             guard hits.count < limit, !isCancelled(), let cursor else { return hits }
 
-            // Pass 2: older notes. An index streams candidates newest-created first, so nothing is
-            // gathered up front; the hits found are then put in edit order.
-            let older = "deleted_at IS NULL AND (updated_at, id) < (?, ?)"
+            // Pass 2: older notes, in edit order, so the first `limit` found are the right ones. An index
+            // narrows them to candidates: looked up under every spelling the search would match, so it
+            // never misses a note the search itself would find. Each is confirmed with `FindEngine`.
+            let older = "n.deleted_at IS NULL AND (n.updated_at, n.id) < (?, ?)"
+            let prefixed = Self.summaryColumns.split(separator: ",").map { "n." + $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
             let after: [SQLValue?] = [.double(cursor.updatedAt.timeIntervalSince1970), .int(cursor.id)]
-            var bindings = after
-            let sql: String
-            let index: (table: String, match: String)?
-            if let phrase = Self.wordPhrase(for: query) {
-                index = ("notes_words", phrase)
-            } else if !query.options.regex, query.text.unicodeScalars.count >= 3 {
-                index = ("notes_fts", Self.quoted(query.text))
-            } else {
-                index = nil
-            }
-            if let index {
-                let prefixed = Self.summaryColumns.split(separator: ",").map { "n." + $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
-                sql = """
-                    SELECT \(prefixed), n.text FROM \(index.table) f JOIN notes n ON n.id = f.rowid
-                    WHERE \(index.table) MATCH ? AND n.deleted_at IS NULL AND (n.updated_at, n.id) < (?, ?)
-                    ORDER BY f.rowid DESC
-                    """
-                bindings = [.text(index.match)] + after
-            } else if !query.options.regex, query.text.allSatisfy(\.isASCII) {
-                // Too short for the trigram index: let SQLite skip non-matches (LIKE ignores ASCII case).
-                let escaped = query.text
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "%", with: "\\%")
-                    .replacingOccurrences(of: "_", with: "\\_")
-                sql = "SELECT \(columns) FROM notes WHERE \(older) AND text LIKE ? ESCAPE '\\' \(order)"
-                bindings.append(.text("%\(escaped)%"))
-            } else {
-                sql = "SELECT \(columns) FROM notes WHERE \(older) \(order)"
-            }
-            let row = try db.prepare(sql)
+            let filter = Self.candidateFilter(for: query)
+            let row = try db.prepare("""
+                SELECT \(prefixed), n.text FROM notes n WHERE \(older)\(filter.map { " AND " + $0.sql } ?? "")
+                ORDER BY n.updated_at DESC, n.id DESC
+                """)
             defer { row.reset() }
-            try row.bind(bindings)
-            let firstOlder = hits.count
+            try row.bind(after + (filter?.values ?? []))
             while hits.count < limit, !isCancelled(), try row.step() {
                 try consider(row)
             }
-            hits[firstOlder...].sort { ($0.note.updatedAt, $0.note.id) > ($1.note.updatedAt, $1.note.id) }
             return hits
         }
+    }
+
+    /// The SQL that narrows notes to ones that may match, or nil to read them all. It may let through
+    /// notes that don't match (`FindEngine` decides); it must never leave out one that does.
+    static func candidateFilter(for query: FindQuery) -> (sql: String, values: [SQLValue?])? {
+        guard !query.options.regex else { return nil }
+        let matchCase = query.options.matchCase
+        let spellings = matchCase ? [query.text] : SearchSpellings.of(query.text)
+        // Whole words: the word index, every spelling as a phrase.
+        if query.options.wholeWord, let spellings {
+            let phrases = spellings.compactMap { wordPhrase(for: FindQuery($0, options: query.options)) }
+            if phrases.count == spellings.count {
+                return ("n.id IN (SELECT rowid FROM notes_words WHERE notes_words MATCH ?)", [.text(phrases.joined(separator: " OR "))])
+            }
+        }
+        // Substrings of three characters or more: the trigram index.
+        if let spellings, spellings.allSatisfy({ $0.unicodeScalars.count >= 3 }) {
+            let match = spellings.map(quoted).joined(separator: " OR ")
+            return ("n.id IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?)", [.text(match)])
+        }
+        // Shorter: let SQLite skip non-matches with LIKE, which ignores case for ASCII only, so other
+        // characters are spelled out.
+        guard let likes = matchCase ? [query.text] : SearchSpellings.of(query.text, forLike: true) else { return nil }
+        // Deduplicated by bytes: Swift calls the Kelvin sign equal to K, but SQLite doesn't.
+        var seen = Set<[UInt8]>()
+        let cased = likes.flatMap { [$0, $0.uppercased()] }.filter { seen.insert(Array($0.utf8)).inserted }
+        let patterns = cased.map { spelling in
+            "%" + spelling.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "%", with: "\\%")
+                .replacingOccurrences(of: "_", with: "\\_") + "%"
+        }
+        let sql = "(" + patterns.map { _ in "n.text LIKE ? ESCAPE '\\'" }.joined(separator: " OR ") + ")"
+        return (sql, patterns.map { .text($0) })
     }
 
     private static func quoted(_ text: String) -> String {

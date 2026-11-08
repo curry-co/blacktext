@@ -368,7 +368,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             return cell
         case let version as VersionRow:
             let cell = reuse(outlineView) { VersionCell(frame: .zero) }
-            let by = version.summary.agentName.map { " · \($0)" } ?? ""
+            let by = version.summary.origin.map { " · \($0)" } ?? ""
             cell.configure("\(Format.versionTime(version.summary.createdAt)) · \(Format.words(version.summary.wordCount))\(by)")
             return cell
         case let hit as HitRow:
@@ -503,7 +503,7 @@ final class NoteCell: NSTableCellView {
 
     func configure(title text: String, detail detailText: String) {
         title.stringValue = text.isEmpty ? "New note" : text
-        title.textColor = text.isEmpty ? Palette.tertiaryText : Palette.text
+        title.textColor = text.isEmpty ? Palette.secondaryText : Palette.text
         detail.stringValue = detailText
         setAccessibilityLabel("\(title.stringValue), \(detailText)")
     }
@@ -558,7 +558,7 @@ final class HitCell: NSTableCellView {
 
     func configure(_ hit: SearchHit) {
         title.stringValue = hit.note.title.isEmpty ? "Empty note" : hit.note.title
-        let matches = hit.matchCount == 1 ? "1 match" : "\(Format.number(hit.matchCount)) matches"
+        let matches = hit.matchCount == 1 ? "1 match" : "\(Format.number(hit.matchCount))\(hit.isCountCapped ? "+" : "") matches"
         detail.stringValue = "\(Format.short(hit.note.updatedAt)) · \(matches)"
         let text = NSMutableAttributedString(string: hit.snippet, attributes: [
             .font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: Palette.secondaryText,

@@ -66,6 +66,7 @@ enum MainMenu {
         menu.addItem(item("Delete Note", #selector(MainWindowController.deleteCurrentNote(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Export All as Text…", #selector(AppDelegate.exportAllAsText(_:)), target: NSApp.delegate as? AppDelegate))
+        menu.addItem(item("Back Up Notes…", #selector(AppDelegate.backUpNotes(_:)), target: NSApp.delegate as? AppDelegate))
         menu.addItem(.separator())
         menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w"))
         return menu

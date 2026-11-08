@@ -190,3 +190,26 @@ extension Store {
         return rows
     }
 }
+
+@Suite struct BackupTests {
+    /// A backup has everything (history and Recently Deleted too), and if it's ever put back it doesn't
+    /// sync until the user says so: its sync bookkeeping is from another time.
+    @Test func aBackupIsCompleteAndDoesNotSyncUntilAsked() throws {
+        let store = try Store(url: temporaryDatabase())
+        let id = try store.createNote(text: "kept", versionSource: "user")
+        let gone = try store.createNote(text: "in Recently Deleted")
+        try store.softDelete(noteID: gone)
+        try store.setSystemFields(Data([1]), noteUID: try #require(try store.noteUID(id: id)))
+        let url = temporaryDatabase().deletingLastPathComponent().appendingPathComponent("backup.sqlite")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try store.writeBackup(to: url)
+
+        let restored = try Store(url: url)
+        #expect(try restored.note(id: id)?.text == "kept")
+        #expect(try restored.versions(noteID: id).count == 1)
+        #expect(try restored.deletedCount() == 1)
+        #expect(restored.syncSuspension == .restoredBackup)
+        #expect(try restored.systemFields(noteUID: try #require(try restored.noteUID(id: id))) == nil)
+        #expect(store.syncSuspension == nil, "the library itself is untouched")
+    }
+}
