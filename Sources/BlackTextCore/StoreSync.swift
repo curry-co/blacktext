@@ -49,7 +49,8 @@ public struct SyncVersion: Equatable, Sendable {
         self.compressed = compressed
     }
 
-    public var text: String { Compression.unpack(body, compressed: compressed) }
+    /// Throws when the body can't be read (see `Compression.unpack`).
+    public var text: String { get throws { try Compression.unpack(body, compressed: compressed) } }
 }
 
 /// What applying a note from another device did.
@@ -231,7 +232,8 @@ extension Store {
     /// yet (the version waits for it) or the version was already here.
     @discardableResult
     public func applyRemote(version remote: SyncVersion) throws -> NoteID? {
-        let words = Int64(WordCount.count(remote.text))
+        // A body this build can't read is stored nowhere, so it can never be restored as empty text.
+        let words = Int64(WordCount.count(try remote.text))
         return try locked {
             try db.transaction {
                 let exists = try db.prepare("SELECT 1 FROM versions WHERE uid = ?")

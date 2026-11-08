@@ -11,9 +11,12 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 /// One SQLite connection. Not thread-safe by itself; `Store` serializes access to it.
 final class Database {
     let handle: OpaquePointer
+    /// The file it was opened from.
+    let path: String
     private var cache: [String: Statement] = [:]
 
     init(path: String) throws {
+        self.path = path
         var db: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX
         guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK, let db else {
@@ -117,8 +120,14 @@ final class Statement {
                 status = sqlite3_bind_int64(raw, index, v)
             case .double(let v)?:
                 status = sqlite3_bind_double(raw, index, v)
-            case .text(let v)?:
-                status = sqlite3_bind_text(raw, index, v, -1, SQLITE_TRANSIENT)
+            case .text(var v)?:
+                // With its length, so text containing a NUL byte isn't cut short there. Empty text binds
+                // "" itself, since a nil pointer would bind NULL.
+                status = v.isEmpty ? sqlite3_bind_text(raw, index, "", 0, SQLITE_TRANSIENT) : v.withUTF8 { utf8 in
+                    utf8.withMemoryRebound(to: CChar.self) { chars in
+                        sqlite3_bind_text(raw, index, chars.baseAddress, Int32(chars.count), SQLITE_TRANSIENT)
+                    }
+                }
             case .blob(let v)?:
                 status = v.withUnsafeBytes { buffer in
                     sqlite3_bind_blob(raw, index, buffer.baseAddress, Int32(buffer.count), SQLITE_TRANSIENT)

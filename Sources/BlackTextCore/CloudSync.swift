@@ -8,8 +8,8 @@ import os
 ///
 /// Apple's `CKSyncEngine` does the scheduling, batching, retries and push notifications. This class
 /// only translates between SQLite rows and CloudKit records. Note text and version bodies go in
-/// encrypted fields, which are end-to-end encrypted with keys in the user's iCloud Keychain. A body
-/// too big for a field travels as an asset that this class encrypts itself (see `setBody`).
+/// encrypted fields, or as an asset when too big for one (see `setBody`). CloudKit encrypts both in
+/// transit and on Apple's servers, and end to end for people who turn on Advanced Data Protection.
 ///
 /// What to send comes from the database's `sync_outbox`, filled by triggers, so edits made by the
 /// CLI or agents (even while the app was closed) are sent too.
@@ -17,7 +17,7 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     public static let containerIdentifier = "iCloud.co.curry.blacktext"
     static let zoneID = CKRecordZone.ID(zoneName: "Notes", ownerName: CKCurrentUserDefaultName)
     static let stateKey = "sync_engine_state"
-    /// A record holds at most 1 MB; compressed bodies bigger than this travel as an encrypted asset instead.
+    /// A record holds at most 1 MB; compressed bodies bigger than this travel as an asset instead.
     static let inlineLimit = 900_000
     /// How many outbox rows to hand the engine at once, so a first upload of years of notes stays small in memory.
     static let queueChunk = 2_000
@@ -25,7 +25,15 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     /// False for builds without the iCloud entitlement (like `make install`): CloudKit would crash them.
     /// Signed builds set `BlackTextCloudSync` in Info.plist.
     public static var isAvailable: Bool {
-        switch Bundle.main.object(forInfoDictionaryKey: "BlackTextCloudSync") {
+        isAvailable(flag: Bundle.main.object(forInfoDictionaryKey: "BlackTextCloudSync"),
+                    databaseOverridden: Paths.isDatabaseOverridden)
+    }
+
+    /// A database picked with `BLACKTEXT_DB` (benchmarks, screenshots, experiments) never syncs, even in a
+    /// signed build: its notes would go up to the signed-in account, and that account's notes would come down into it.
+    static func isAvailable(flag: Any?, databaseOverridden: Bool) -> Bool {
+        guard !databaseOverridden else { return false }
+        return switch flag {
         case let flag as Bool: flag
         case let flag as String: flag == "YES" || flag == "1" || flag == "true"
         default: false
@@ -166,6 +174,9 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
                 notes.append((note, record))
             } else if let version = Self.version(from: record) {
                 versions.append(version)
+            } else {
+                // Damaged, or from a newer build: leave this device's copy as it is.
+                log.error("Couldn't read \(record.recordID.recordName, privacy: .public)")
             }
         }
         let deletions = changes.deletions.compactMap { deletion -> String? in
@@ -187,7 +198,11 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         }
         // Notes first, so versions find them.
         for version in versions {
-            if let id = try? store.applyRemote(version: version) { changed.insert(id) }
+            do {
+                if let id = try store.applyRemote(version: version) { changed.insert(id) }
+            } catch {
+                log.error("Couldn't apply a version: \(error.localizedDescription, privacy: .public)")
+            }
         }
         for uid in deletions {
             if let id = try? store.applyRemoteDeletion(noteUID: uid) { changed.insert(id) }
@@ -320,40 +335,33 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
         record["note"] = CKRecord.Reference(recordID: recordID(.note, version.noteUID), action: .deleteSelf)
     }
 
-    /// Small bodies go in an encrypted field. Very big ones (over ~900 KB compressed) travel as an asset, which
-    /// CloudKit encrypts end to end only for people who turned on Advanced Data Protection. So the asset holds
-    /// AES-GCM ciphertext under a key made for this record alone, and the key goes in an encrypted field.
+    /// Small bodies go in an encrypted field. Very big ones (over ~900 KB compressed) travel as an asset.
+    /// CloudKit protects the two alike: encrypted in transit and on its servers, and end to end with
+    /// Advanced Data Protection, which covers encrypted fields and all assets.
     private static func setBody(_ packed: (data: Data, compressed: Bool), on record: CKRecord, name: String) {
         record["compressed"] = packed.compressed ? 1 : 0
+        // Some earlier builds sealed assets themselves, with the key here. Nothing sent now uses it.
+        record.encryptedValues["bodyKey"] = nil as Data?
         if packed.data.count <= inlineLimit {
             record.encryptedValues["body"] = packed.data
-            record.encryptedValues["bodyKey"] = nil as Data?
             record["bodyAsset"] = nil as CKAsset?
             return
         }
         record.encryptedValues["body"] = nil as Data?
-        let key = SymmetricKey(size: .bits256)
-        // Sealing with a fresh key and a random nonce can't fail; if it somehow did, send no body rather than plaintext.
-        guard let sealed = try? AES.GCM.seal(packed.data, using: key).combined else {
-            record.encryptedValues["bodyKey"] = nil as Data?
-            record["bodyAsset"] = nil as CKAsset?
-            return
-        }
         let url = assetDirectory.appendingPathComponent(name)
         try? FileManager.default.createDirectory(at: assetDirectory, withIntermediateDirectories: true)
-        try? sealed.write(to: url, options: .atomic)
-        record.encryptedValues["bodyKey"] = key.withUnsafeBytes { Data($0) }
+        try? packed.data.write(to: url, options: .atomic)
         record["bodyAsset"] = CKAsset(fileURL: url)
     }
 
-    /// The body bytes as stored (compressed or not), from the encrypted field or the decrypted asset.
-    /// Nil when the asset was tampered with or its key is wrong.
+    /// The body bytes as stored (compressed or not), from the encrypted field or the asset.
+    /// Nil when a sealed asset from an earlier build was tampered with or its key is wrong.
     private static func body(of record: CKRecord) -> (data: Data, compressed: Bool)? {
         let compressed = (record["compressed"] as? Int64 ?? 0) != 0
         if let inline: Data = record.encryptedValues["body"] { return (inline, compressed) }
         guard let asset = record["bodyAsset"] as? CKAsset, let url = asset.fileURL,
               let stored = try? Data(contentsOf: url) else { return nil }
-        // The first builds with sync uploaded assets unencrypted, with no key.
+        // Assets come as they are, except from the builds that sealed them with AES-GCM and kept the key in `bodyKey`.
         guard let key: Data = record.encryptedValues["bodyKey"] else { return (stored, compressed) }
         guard let box = try? AES.GCM.SealedBox(combined: stored),
               let data = try? AES.GCM.open(box, using: SymmetricKey(data: key)) else { return nil }
@@ -362,9 +370,10 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
 
     static func note(from record: CKRecord) -> SyncNote? {
         guard record.recordType == RecordType.note, let (kind, uid) = parse(record.recordID), kind == .note,
-              let body = body(of: record) else { return nil }
+              let body = body(of: record),
+              let text = try? Compression.unpack(body.data, compressed: body.compressed) else { return nil }
         let edited = record["editedAt"] as? Date ?? record.modificationDate ?? Date()
-        return SyncNote(uid: uid, text: Compression.unpack(body.data, compressed: body.compressed),
+        return SyncNote(uid: uid, text: text,
                         createdAt: record["createdAt"] as? Date ?? edited,
                         editedAt: edited,
                         deletedAt: record["deletedAt"] as? Date,

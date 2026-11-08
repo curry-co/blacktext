@@ -67,6 +67,29 @@ func temporaryDatabase() -> URL {
         #expect(try store.summary(id: id)?.versionCount == 2)
     }
 
+    /// Restoring a version that can't be read must fail, not hand back empty text to restore.
+    @Test func aVersionThatDoesNotDecodeIsAnError() throws {
+        let id = try store.createNote(text: "draft")
+        let version = try #require(try store.addVersion(noteID: id, text: "draft"))
+        try store.db.run("UPDATE versions SET compressed = 1, body = x'01020304' WHERE id = ?", .int(version))
+        #expect(throws: (any Error).self) { try store.version(id: version) }
+        try store.db.run("UPDATE versions SET compressed = 0, body = x'61ff62' WHERE id = ?", .int(version))
+        #expect(throws: (any Error).self) { try store.version(id: version) }
+
+        // An unreadable latest version doesn't stop the next one being saved.
+        #expect(try store.addVersion(noteID: id, text: "draft") != nil)
+    }
+
+    @Test func compressionRefusesBytesItDidNotWrite() throws {
+        let long = String(repeating: "black coffee ", count: 100)
+        let packed = Compression.pack(long)
+        #expect(packed.compressed)
+        #expect(try Compression.unpack(packed.data, compressed: true) == long)
+        #expect(try Compression.unpack(Data("plain".utf8), compressed: false) == "plain")
+        #expect(throws: (any Error).self) { try Compression.unpack(Data([0x01, 0x02, 0x03]), compressed: true) }
+        #expect(throws: (any Error).self) { try Compression.unpack(Data([0xFF]), compressed: false) }
+    }
+
     @Test func deleteMovesToRecentlyDeletedAndPurges() throws {
         let keep = try store.createNote(text: "keep")
         let gone = try store.createNote(text: "gone")
@@ -133,10 +156,75 @@ func temporaryDatabase() -> URL {
         #expect(!store.agentsCanEdit)
     }
 
+    /// SQLite reads a C string up to its first NUL unless it's given the length.
+    @Test func textKeepsEverythingAfterANulByte() throws {
+        let text = "before\u{0}after"
+        let id = try store.createNote(text: text)
+        #expect(try store.note(id: id)?.text == text)
+        try store.updateText(noteID: id, text: text + " again")
+        #expect(try store.note(id: id)?.text == text + " again")
+        #expect(try store.search(FindQuery("after")).map(\.note.id) == [id])
+
+        let empty = try store.createNote(text: "")
+        #expect(try store.note(id: empty)?.text == "")
+        try store.updateText(noteID: id, text: "")
+        #expect(try store.note(id: id)?.text == "")
+    }
+
     @Test func twoConnectionsShareOneFile() throws {
         let other = try Store(url: store.url)
         let id = try store.createNote(text: "from one")
         #expect(try other.note(id: id)?.text == "from one")
+    }
+}
+
+@Suite struct SchemaTests {
+    private func count(_ sql: String, in db: Database) throws -> Int {
+        let row = try db.prepare(sql)
+        defer { row.reset() }
+        return try row.step() ? row.int(0) : 0
+    }
+
+    private func backups(next url: URL) throws -> [URL] {
+        let folder = url.deletingLastPathComponent().appendingPathComponent("Backups")
+        guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+    }
+
+    /// An older build must never write to (or "upgrade") a database a newer build has changed.
+    @Test func aDatabaseFromANewerBuildIsRefusedUntouched() throws {
+        let url = temporaryDatabase()
+        let newer = try Store(url: url)
+        _ = try newer.createNote(text: "written by a newer build")
+        try newer.db.execute("PRAGMA user_version = 99")
+
+        #expect(throws: SchemaError.self) { try Store(url: url) }
+        #expect(try count("PRAGMA user_version", in: newer.db) == 99)
+        #expect(try newer.noteCount() == 1)
+        #expect(try backups(next: url).isEmpty)
+    }
+
+    @Test func upgradingBacksUpFirst() throws {
+        let url = temporaryDatabase()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let db = try Database(path: url.path)
+        try Schema.migrate(db, to: 2)
+        try db.run("INSERT INTO notes (created_at, updated_at, text, title, word_count) VALUES (1, 1, 'old note', 'old note', 2)")
+        try Schema.migrate(db)
+        #expect(try count("PRAGMA user_version", in: db) == Schema.currentVersion)
+
+        let copies = try backups(next: url)
+        #expect(copies.count == 1)
+        let copy = try Database(path: try #require(copies.first).path)
+        #expect(try count("PRAGMA user_version", in: copy) == 2, "the copy is the database as it was")
+        #expect(try count("SELECT count(*) FROM notes", in: copy) == 1)
+    }
+
+    @Test func aNewDatabaseIsNotBackedUp() throws {
+        let url = temporaryDatabase()
+        _ = try Store(url: url)
+        _ = try Store(url: url)
+        #expect(try backups(next: url).isEmpty)
     }
 }
 

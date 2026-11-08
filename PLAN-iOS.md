@@ -15,11 +15,11 @@ This is the build spec for the iOS version. The Mac spec is [PLAN.md](PLAN.md); 
 | **Builds** | GitHub Actions (the repo's existing CI), no local Xcode needed | Its Macs have Xcode; free for public repos. |
 | **Delivery** | TestFlight (internal testing), then the App Store | |
 | **Sync** | CloudKit private database via `CKSyncEngine` | Apple's engine for exactly this: batching, retries, push notifications, account changes. |
-| **Privacy** | Note text, titles and version bodies go in CloudKit *encrypted* fields | End-to-end encrypted with keys in your iCloud Keychain, even without Advanced Data Protection. Apple can't read them. |
+| **Privacy** | Note text, titles and version bodies go in CloudKit *encrypted* fields | Encrypted in transit and on Apple's servers, and end-to-end encrypted with Advanced Data Protection. (This first said end-to-end even without it; Apple's documentation says otherwise.) |
 | **Minimum OS** | iOS 17 (needed by `CKSyncEngine`); macOS stays 14 | |
 | **Identifiers** | Bundle ID `co.curry.blacktext` on both; container `iCloud.co.curry.blacktext`; App Group `group.co.curry.blacktext` | The App Group lets a share extension reach the same database later. |
 
-PLAN.md's principle 5 ("No account, no cloud") becomes: **your notes stay yours.** One local file on each device, synced only through *your* iCloud account, with the text encrypted end-to-end. If you're not signed in to iCloud, or for builds without iCloud (like `make install`), BlackText works exactly as before, local only.
+PLAN.md's principle 5 ("No account, no cloud") becomes: **your notes stay yours.** One local file on each device, synced only through *your* iCloud account, with the text encrypted in transit and on Apple's servers, and end to end with Advanced Data Protection. If you're not signed in to iCloud, or for builds without iCloud (like `make install`), BlackText works exactly as before, local only.
 
 ---
 

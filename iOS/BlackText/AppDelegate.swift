@@ -32,7 +32,7 @@ enum DatabaseLocation {
 
     static var url: URL {
         // BLACKTEXT_DB (used for Simulator screenshots) wins, as on the Mac.
-        if ProcessInfo.processInfo.environment["BLACKTEXT_DB"]?.isEmpty == false { return Paths.databaseURL }
+        if Paths.isDatabaseOverridden { return Paths.databaseURL }
         if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
             return container.appendingPathComponent("blacktext.sqlite")
         }
