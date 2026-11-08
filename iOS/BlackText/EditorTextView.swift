@@ -63,6 +63,7 @@ final class EditorTextView: UITextView {
         alwaysBounceVertical = true
         showsHorizontalScrollIndicator = false
         contentInsetAdjustmentBehavior = .never
+        // EditorController scales the text by the system Text Size itself (CanvasTextSize).
         adjustsFontForContentSizeCategory = false
         if #available(iOS 18.0, *) {
             // Writing Tools may rewrite, but only ever as plain text.
