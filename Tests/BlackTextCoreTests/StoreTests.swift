@@ -163,6 +163,56 @@ func temporaryDatabase() -> URL {
     }
 }
 
+@Suite struct SchemaTests {
+    private func count(_ sql: String, in db: Database) throws -> Int {
+        let row = try db.prepare(sql)
+        defer { row.reset() }
+        return try row.step() ? row.int(0) : 0
+    }
+
+    private func backups(next url: URL) throws -> [URL] {
+        let folder = url.deletingLastPathComponent().appendingPathComponent("Backups")
+        guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+    }
+
+    /// An older build must never write to (or "upgrade") a database a newer build has changed.
+    @Test func aDatabaseFromANewerBuildIsRefusedUntouched() throws {
+        let url = temporaryDatabase()
+        let newer = try Store(url: url)
+        _ = try newer.createNote(text: "written by a newer build")
+        try newer.db.execute("PRAGMA user_version = 99")
+
+        #expect(throws: SchemaError.self) { try Store(url: url) }
+        #expect(try count("PRAGMA user_version", in: newer.db) == 99)
+        #expect(try newer.noteCount() == 1)
+        #expect(try backups(next: url).isEmpty)
+    }
+
+    @Test func upgradingBacksUpFirst() throws {
+        let url = temporaryDatabase()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let db = try Database(path: url.path)
+        try Schema.migrate(db, to: 2)
+        try db.run("INSERT INTO notes (created_at, updated_at, text, title, word_count) VALUES (1, 1, 'old note', 'old note', 2)")
+        try Schema.migrate(db)
+        #expect(try count("PRAGMA user_version", in: db) == Schema.currentVersion)
+
+        let copies = try backups(next: url)
+        #expect(copies.count == 1)
+        let copy = try Database(path: try #require(copies.first).path)
+        #expect(try count("PRAGMA user_version", in: copy) == 2, "the copy is the database as it was")
+        #expect(try count("SELECT count(*) FROM notes", in: copy) == 1)
+    }
+
+    @Test func aNewDatabaseIsNotBackedUp() throws {
+        let url = temporaryDatabase()
+        _ = try Store(url: url)
+        _ = try Store(url: url)
+        #expect(try backups(next: url).isEmpty)
+    }
+}
+
 @Suite struct SearchPassTests {
     @Test func olderNotesAreFoundThroughTheIndexes() throws {
         let store = try Store(url: temporaryDatabase())

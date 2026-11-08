@@ -1,19 +1,57 @@
 import Foundation
 
+/// The database was last changed by a newer BlackText, which may have changed its layout. This build
+/// leaves it alone rather than misread it or write to it.
+public struct SchemaError: Error, CustomStringConvertible {
+    public let found: Int
+    public let supported: Int
+
+    public var description: String {
+        "These notes were last opened by a newer version of BlackText (database version \(found); this one reads up to \(supported)). Update BlackText to open them. Nothing was changed."
+    }
+}
+
 enum Schema {
     /// Each entry upgrades the schema by one version.
     private static let migrations = [version1, version2, version3]
     static var currentVersion: Int { migrations.count }
 
     /// Upgrades to `target` (the latest by default; tests stop earlier to check an upgrade).
+    /// Refuses a database from a newer build, and copies an existing one to `Backups` before changing it.
     static func migrate(_ db: Database, to target: Int = currentVersion) throws {
-        guard try userVersion(db) < target else { return }
+        let from = try userVersion(db)
+        try refuseNewer(from)
+        guard from < target else { return }
+        // A brand-new database has nothing to lose.
+        if from > 0 { try backUp(db, version: from) }
         try db.transaction {
+            // Another process may have got here first.
             let from = try userVersion(db)
+            try refuseNewer(from)
             guard from < target else { return }
             for sql in migrations[from..<target] { try db.execute(sql) }
             try db.execute("PRAGMA user_version = \(target)")
         }
+    }
+
+    private static func refuseNewer(_ version: Int) throws {
+        if version > currentVersion { throw SchemaError(found: version, supported: currentVersion) }
+    }
+
+    /// A complete copy of the database as it is, next to it in `Backups`. Throws (so nothing is upgraded)
+    /// if the copy can't be made.
+    private static func backUp(_ db: Database, version: Int) throws {
+        guard !db.path.isEmpty, db.path != ":memory:" else { return }
+        let file = URL(fileURLWithPath: db.path)
+        let folder = file.deletingLastPathComponent().appendingPathComponent("Backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let name = "\(file.deletingPathExtension().lastPathComponent)-schema\(version)-\(formatter.string(from: Date()))"
+            + "-\(UUID().uuidString.prefix(8)).sqlite"
+        // VACUUM INTO writes a consistent snapshot, including what's still in the write-ahead log.
+        try db.run("VACUUM INTO ?", .text(folder.appendingPathComponent(name).path))
     }
 
     private static func userVersion(_ db: Database) throws -> Int {

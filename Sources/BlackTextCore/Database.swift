@@ -11,9 +11,12 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 /// One SQLite connection. Not thread-safe by itself; `Store` serializes access to it.
 final class Database {
     let handle: OpaquePointer
+    /// The file it was opened from.
+    let path: String
     private var cache: [String: Statement] = [:]
 
     init(path: String) throws {
+        self.path = path
         var db: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX
         guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK, let db else {
