@@ -105,10 +105,12 @@ public final class Store: @unchecked Sendable {
     /// two land together or not at all. `completing` records agent ops as done in the same transaction.
     ///
     /// Emptying a note first keeps what it said as a version, so clearing it can always be undone from its
-    /// history. Throws `StoreError.noteNotFound` or `.noteDeleted` rather than write where nobody will see it.
-    /// Returns the updated summary, or nil if nothing changed.
+    /// history. `base` is the text the caller last saw stored: if something else (sync, usually) has written
+    /// since, that text is kept as a version before it's replaced. Throws `StoreError.noteNotFound` or
+    /// `.noteDeleted` rather than write where nobody will see it. Returns the updated summary, or nil if
+    /// nothing changed.
     @discardableResult
-    public func saveText(noteID: NoteID, text: String, versionSource: String? = nil,
+    public func saveText(noteID: NoteID, text: String, versionSource: String? = nil, base: String? = nil,
                          completing completions: [Int64: AgentResult] = [:], date: Date = Date()) throws -> NoteSummary? {
         let title = NoteTitle.from(text)
         let words = WordCount.count(text)
@@ -119,7 +121,10 @@ public final class Store: @unchecked Sendable {
                 let old = try liveTextLocked(noteID)
                 var changed = false
                 if !old.utf8.elementsEqual(text.utf8) {
-                    if text.allSatisfy(\.isWhitespace), !old.allSatisfy(\.isWhitespace) {
+                    if let base, !old.utf8.elementsEqual(base.utf8) {
+                        // Written underneath the canvas since it last saw the note: keep it.
+                        try insertVersionLocked(noteID: noteID, text: old, source: "device:another device", date: date)
+                    } else if text.allSatisfy(\.isWhitespace), !old.allSatisfy(\.isWhitespace) {
                         try insertVersionLocked(noteID: noteID, text: old, source: "user", date: date)
                     }
                     try db.run("UPDATE notes SET text = ?, title = ?, word_count = ?, updated_at = ? WHERE id = ?",

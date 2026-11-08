@@ -77,8 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()
         let store = self.store!
-        DispatchQueue.global(qos: .utility).async {
-            _ = try? store.purgeDeleted(before: Date().addingTimeInterval(-30 * 86_400))
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let purged = (try? store.purgeDeleted(before: Date().addingTimeInterval(-30 * 86_400))) ?? 0
+            // Removing notes queues their deletions; send them now rather than at the next edit.
+            guard purged > 0 else { return }
+            DispatchQueue.main.async { self?.cloudSync?.localChangesMayExist() }
         }
         startCloudSync()
         LaunchTrace.finished()
@@ -92,10 +95,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let sync = CloudSync(store: syncStore, deviceName: Host.current().localizedName ?? "Mac")
         sync.willApplyRemoteChanges = { [weak self] in self?.windowController.editor.saveBeforeRemoteChanges() }
         sync.didApplyRemoteChanges = { [weak self] ids in self?.windowController.remoteNotesDidChange(ids) }
+        sync.onStatusChange = { [weak self] status in self?.syncStatusDidChange(status) }
         windowController.onLocalChange = { [weak sync] in sync?.localChangesMayExist() }
         cloudSync = sync
         sync.start()
         NSApp.registerForRemoteNotifications()
+    }
+
+    private var toldAboutSuspension = false
+
+    /// Sync stopping for the user to decide is said once a launch; the rest waits for the menu.
+    private func syncStatusDidChange(_ status: CloudSync.Status) {
+        guard status.suspension != nil, !toldAboutSuspension else { return }
+        toldAboutSuspension = true
+        showSyncStatus(nil)
+    }
+
+    /// BlackText → iCloud Sync…: where sync stands, and what can be done about it.
+    @objc func showSyncStatus(_ sender: Any?) {
+        guard let sync = cloudSync else { return }
+        let status = sync.status
+        let alert = NSAlert()
+        if let suspension = status.suspension {
+            alert.messageText = "iCloud sync is off"
+            alert.informativeText = suspension.explanation
+            alert.addButton(withTitle: "Keep Off")
+            alert.addButton(withTitle: "Turn Sync On")
+            if alert.runModal() == .alertSecondButtonReturn { sync.resume() }
+            return
+        }
+        var lines: [String] = []
+        let waiting = status.pending - status.failed
+        lines.append(waiting == 0 ? "Everything here has been sent." : "\(waiting) \(waiting == 1 ? "change is" : "changes are") waiting to be sent.")
+        if status.failed > 0 {
+            lines.append("iCloud refused \(status.failed) \(status.failed == 1 ? "change" : "changes"); \(status.failed == 1 ? "it's" : "they're") kept here and tried again at the next launch.")
+        }
+        if let error = status.lastError { lines.append("Last problem: \(error)") }
+        if let sent = status.lastSent { lines.append("Last sent \(Format.dateTime(sent)).") }
+        alert.messageText = "iCloud sync"
+        alert.informativeText = lines.joined(separator: "\n\n")
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: status.failed > 0 ? "Try Again Now" : "Sync Now")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        if status.failed > 0 { try? store.retryFailedSyncChanges() }
+        sync.localChangesMayExist()
+        sync.fetchNow()
     }
 
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
@@ -207,6 +251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(toggleAgentsCanEdit(_:)) {
             item.state = store?.agentsCanEdit == false ? .off : .on
+        }
+        if item.action == #selector(showSyncStatus(_:)) {
+            item.isHidden = cloudSync == nil
+            item.title = cloudSync?.status.suspension == nil ? "iCloud Sync…" : "iCloud Sync Is Off…"
         }
         return true
     }
