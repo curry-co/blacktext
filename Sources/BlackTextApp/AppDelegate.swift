@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var notifyToken: Int32 = 0
     private let services = ServiceProvider()
     private var cloudSync: CloudSync?
+    /// Agent ops this run has applied. An op whose edit is in the canvas stays pending until a save records
+    /// it, and mustn't be applied again meanwhile.
+    private var handledOps: Set<Int64> = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         Preferences.register()
@@ -19,15 +22,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LaunchTrace.mark("did-finish-launching")
-        link.holdWhileRunning()
+        // While the app holds the lock, the blacktext command sends edits here instead of writing them itself.
+        // Without it the two could overwrite each other, so don't run without it.
+        do {
+            guard try link.holdWhileRunning() else {
+                if let other = NSRunningApplication.runningApplications(withBundleIdentifier: Paths.bundleIdentifier)
+                    .first(where: { $0 != NSRunningApplication.current }) {
+                    other.activate()
+                } else {
+                    stop("BlackText is already open", "Another copy of BlackText, or the blacktext command, is using these notes. Try again in a moment.")
+                }
+                NSApp.terminate(nil)
+                return
+            }
+        } catch {
+            stop("BlackText couldn't open its notes", "\(error)")
+            NSApp.terminate(nil)
+            return
+        }
         let stores: (Store, Store, Store)
         do {
             stores = (try Store(), try Store(), try Store())
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "BlackText couldn't open its notes"
-            alert.informativeText = "\(error)\n\n\(Paths.databaseURL.path)"
-            alert.runModal()
+            stop("BlackText couldn't open its notes", "\(error)\n\n\(Paths.databaseURL.path)")
             NSApp.terminate(nil)
             return
         }
@@ -41,10 +58,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         DispatchQueue.main.async { [weak self] in self?.finishLaunching() }
     }
 
+    private func stop(_ message: String, _ detail: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.runModal()
+    }
+
     private func finishLaunching() {
         // Spell checking loads dictionaries; start it once the window is up.
         windowController.editor.setSpellChecking(Preferences.spellCheck)
-        notify_register_dispatch(AppLink.changedNotification, &notifyToken, .main) { [weak self] _ in
+        notify_register_dispatch(link.changedNotification, &notifyToken, .main) { [weak self] _ in
             self?.databaseDidChange()
         }
         databaseDidChange()
@@ -89,6 +113,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
+    /// Quitting saves first. If the save fails, asks before quitting, since the canvas is the only full copy
+    /// (apart from the recovery copy, if one could be written).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let editor = windowController?.editor,
+              case .failed(let message, let copy) = editor.flush() else { return .terminateNow }
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Quit without saving your latest changes?"
+        alert.informativeText = copy.map { "\(message)\n\nA copy of the text is in \($0.path)." }
+            ?? "\(message)\n\nNo copy could be saved either. Copy the text somewhere safe first."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Quit Anyway")
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         let start = Date()
         windowController?.editor.flush()
@@ -107,9 +146,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func databaseDidChange() {
         guard let store, let windowController else { return }
         let ops = (try? store.pendingOps()) ?? []
-        for op in ops {
-            let result = store.agentsCanEdit ? windowController.editor.apply(op) : .failure(AgentError.readOnly.description)
-            try? store.complete(opID: op.id, result: result)
+        for op in ops where !handledOps.contains(op.id) {
+            handledOps.insert(op.id)
+            // Saving the canvas so an agent can read it isn't an edit: it's allowed when agents may only read.
+            let mayApply = op.edit == .flush || store.agentsCanEdit
+            let result = mayApply ? windowController.editor.apply(op) : .failure(AgentError.readOnly.description)
+            if let result { try? store.complete(opID: op.id, result: result) }
         }
         windowController.databaseDidChange()
         cloudSync?.localChangesMayExist()

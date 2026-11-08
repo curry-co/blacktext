@@ -5,6 +5,9 @@ protocol EditorControllerDelegate: AnyObject {
     func editor(_ editor: EditorController, didOpen noteID: NoteID?)
     func editor(_ editor: EditorController, didSave summary: NoteSummary)
     func editor(_ editor: EditorController, didDiscard noteID: NoteID)
+    /// A note the sidebar hasn't seen: made from a preview, or the canvas's unsaved text kept as a new note
+    /// after its note was deleted elsewhere.
+    func editor(_ editor: EditorController, didCreate noteID: NoteID)
     func editorDidChangeText(_ editor: EditorController)
     /// The Save+New button: file this note away, like ⌘↩.
     func editorDidRequestNewNote(_ editor: EditorController)
@@ -29,6 +32,8 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
     let previewTextView = EditorTextView.make()
     let marksView = MatchMarksView()
     let previewBar = PreviewBar()
+    /// Shown while saving fails.
+    private let problemBar = PreviewBar()
     private(set) lazy var saveNewButton = SaveNewButton(action: UIAction { [weak self] _ in self?.saveNewTapped() })
     private let stack = UIStackView()
     private let canvas = UIView()
@@ -69,6 +74,11 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
             guard let self else { return }
             delegate?.editor(self, didDiscard: id)
         }
+        session.onRecreated = { [weak self] _, id in
+            guard let self else { return }
+            delegate?.editor(self, didCreate: id)
+        }
+        session.onOutcomeChanged = { [weak self] outcome in self?.showOutcome(outcome) }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -119,6 +129,8 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
             marksView.widthAnchor.constraint(equalToConstant: 20),
         ])
 
+        problemBar.isHidden = true
+        stack.addArrangedSubview(problemBar)
         previewBar.isHidden = true
         stack.addArrangedSubview(previewBar)
         stack.addArrangedSubview(canvas)
@@ -158,17 +170,21 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
 
     // MARK: Opening notes
 
-    /// Opens a note in the canvas (nil = blank canvas). What was there is saved first.
-    func open(noteID: NoteID?, caretAtEnd: Bool = false, select range: NSRange? = nil) {
+    /// Opens a note in the canvas (nil = blank canvas). What was there is saved first. If it can't be saved
+    /// and no recovery copy could be written either, the canvas stays put and this returns false.
+    @discardableResult
+    func open(noteID: NoteID?, caretAtEnd: Bool = false, select range: NSRange? = nil) -> Bool {
         exitPreview()
         endUndoOffer()
         if let current = session.noteID {
-            if current == noteID { return }
+            if current == noteID { return true }
             selections[current] = textView.selectedRange
         }
         if textView.markedTextRange != nil { textView.unmarkText() }
-        session.leave()
-        session.waitForSaves()
+        guard leaveCurrentNote() else {
+            delegate?.editor(self, didOpen: session.noteID)
+            return false
+        }
 
         let note = noteID.flatMap { try? store.note(id: $0) }.flatMap { $0.deletedAt == nil ? $0 : nil }
         session.load(note)
@@ -188,6 +204,47 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
         }
         updateSaveNewButton()
         delegate?.editor(self, didOpen: note?.id)
+        return true
+    }
+
+    /// Saves the canvas before it shows something else. True if it's safe to: the database has the text, or
+    /// a recovery copy does (and the user is told where).
+    private func leaveCurrentNote() -> Bool {
+        switch session.leave() {
+        case .saved:
+            return true
+        case .failed(let message, let copy?):
+            tellUnsaved(message: message, copy: copy)
+            return true
+        case .failed(let message, nil):
+            tellUnsaved(message: message, copy: nil)
+            return false
+        }
+    }
+
+    private func tellUnsaved(message: String, copy: URL?) {
+        let detail = copy == nil
+            ? "\(message)\n\nIt's still open. Copy the text somewhere safe before you close it."
+            : "\(message)\n\nA copy of the text was kept in BlackText's Recovered folder."
+        let alert = UIAlertController(title: copy == nil ? "This note couldn't be saved" : "Your latest changes couldn't be saved",
+                                      message: detail, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        guard presentedViewController == nil, view.window != nil else { return }
+        present(alert, animated: true)
+    }
+
+    /// The bar above the canvas while saves are failing: what went wrong, Retry, and Copy to keep the text.
+    private func showOutcome(_ outcome: NoteSession.Outcome) {
+        switch outcome {
+        case .saved:
+            problemBar.isHidden = true
+        case .failed(let message, _):
+            problemBar.configure(text: "Not saved: \(message)", actions: [
+                ("Retry", { [weak self] in self?.session.save(wait: true) }),
+                ("Copy Text", { [weak self] in UIPasteboard.general.string = self?.textView.text }),
+            ])
+            problemBar.isHidden = false
+        }
     }
 
     /// Opens the note that was open last time, with the caret at the end.
@@ -232,10 +289,13 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
         if !hasText, session.noteID != nil { return nil }
         if textView.markedTextRange != nil { textView.unmarkText() }
         // Wait for the save so the filed note is dated before the new one.
-        session.save(version: .ifChanged, wait: true)
+        guard session.save(version: .ifChanged, wait: true).isSaved else {
+            if case .failed(let message, let copy) = session.outcome { tellUnsaved(message: message, copy: copy) }
+            return nil
+        }
         let previous = session.noteID
         guard let id = try? store.createNote() else { return nil }
-        open(noteID: id)
+        guard open(noteID: id) else { return nil }
         if let previous, hasText {
             textView.undoManager?.registerUndo(withTarget: self) { editor in
                 editor.open(noteID: previous, caretAtEnd: true)
@@ -248,8 +308,9 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
 
     // MARK: Saving
 
-    /// Saves now, with a version if anything changed, waiting for the write. Used on quit.
-    func flush() {
+    /// Saves now, with a version if anything changed, waiting for every write so far. Used on quit.
+    @discardableResult
+    func flush() -> NoteSession.Outcome {
         session.save(version: .ifChanged, wait: true)
     }
 
@@ -261,13 +322,12 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
     /// and waits for saves already on their way.
     func flushPendingSave() {
         session.save(wait: true)
-        session.waitForSaves()
     }
 
-    /// The app is going to the background: write now and wait, since it may never come back.
+    /// The app is going to the background: write now and wait, since it may never come back. If it fails,
+    /// the text is in a recovery copy.
     func saveForBackground() {
         session.save(wait: true)
-        session.waitForSaves()
     }
 
     /// True while there's typing the database hasn't seen yet.
@@ -278,7 +338,7 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
     /// Returns true if the canvas changed.
     @discardableResult
     func reloadCurrentNoteIfUnchanged() -> Bool {
-        guard let id = session.noteID, !session.isDirty, textView.markedTextRange == nil else { return false }
+        guard let id = session.noteID, textView.markedTextRange == nil else { return false }
         session.waitForSaves()
         let stored: Note?
         do {
@@ -287,10 +347,16 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
             return false
         }
         guard let note = stored, note.deletedAt == nil else {
-            // Deleted elsewhere: it's in Recently Deleted (or gone), so the canvas starts blank.
+            // Deleted elsewhere. Unsaved typing here is kept as a new note by the next save; otherwise the
+            // canvas starts blank (the note is in Recently Deleted).
+            if session.isDirty {
+                session.save()
+                return false
+            }
             open(noteID: nil)
             return true
         }
+        guard !session.isDirty else { return false }
         let old = textView.textStorage.string
         guard old != note.text else { return false }
         let selection = TextDiff.map(textView.selectedRange, from: old as NSString, to: note.text as NSString)
@@ -362,15 +428,19 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
         textDidChange()
     }
 
-    /// Saves a version of what's there now, before a big change.
-    func saveVersionBeforeChange() {
-        session.save(version: .always, wait: true)
+    /// Saves a version of what's there now, before a big change. False if it couldn't be saved.
+    @discardableResult
+    func saveVersionBeforeChange() -> Bool {
+        session.save(version: .always, wait: true).isSaved
     }
 
     /// blacktext://append: adds text to the end of the open note, undoably, with a version either side.
     func appendText(_ text: String) {
         exitPreview()
-        saveVersionBeforeChange()
+        guard saveVersionBeforeChange() else {
+            if case .failed(let message, let copy) = session.outcome { tellUnsaved(message: message, copy: copy) }
+            return
+        }
         let existing = textView.textStorage.string
         let insertion = NoteEdits.separator(appendingTo: existing, newParagraph: true) + text
         replace([NSRange(location: textView.textStorage.length, length: 0)], with: [insertion], actionName: "Append")
@@ -523,8 +593,8 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
 
     private func newNoteFromPreview() {
         let text = previewText
-        guard let id = try? store.createNote(text: text) else { return }
-        _ = try? store.addVersion(noteID: id, text: text)
+        guard let id = try? store.createNote(text: text, versionSource: "user") else { return }
+        delegate?.editor(self, didCreate: id)
         open(noteID: id, caretAtEnd: true)
         focusCanvas()
     }

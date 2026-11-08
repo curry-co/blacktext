@@ -14,6 +14,9 @@ final class Database {
     /// The file it was opened from.
     let path: String
     private var cache: [String: Statement] = [:]
+    /// Tests only: runs before each statement is prepared, with its SQL, to simulate a full disk, a lock
+    /// or a slow write.
+    var fault: ((String) throws -> Void)?
 
     init(path: String) throws {
         self.path = path
@@ -48,6 +51,7 @@ final class Database {
 
     /// A cached prepared statement, reset and with its bindings cleared.
     func prepare(_ sql: String) throws -> Statement {
+        try fault?(sql)
         if let statement = cache[sql] {
             statement.reset()
             return statement

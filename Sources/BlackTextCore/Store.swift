@@ -20,6 +20,13 @@ public final class Store: @unchecked Sendable {
         try Schema.migrate(db)
     }
 
+    /// Tests only: makes every statement on this connection call `fault` with its SQL first (nil to stop).
+    func injectFault(_ fault: ((String) throws -> Void)?) {
+        lock.lock()
+        db.fault = fault
+        lock.unlock()
+    }
+
     func locked<T>(_ body: () throws -> T) throws -> T {
         lock.lock()
         defer { lock.unlock() }
@@ -46,15 +53,25 @@ public final class Store: @unchecked Sendable {
                     wordCount: s.wordCount, versionCount: s.versionCount, deletedAt: s.deletedAt)
     }
 
+    /// A new note. With `versionSource`, its first version is saved with it; `completing` records agent ops
+    /// as done in the same transaction, so an op that creates a note happens exactly once.
     @discardableResult
-    public func createNote(text: String = "", date: Date = Date()) throws -> NoteID {
+    public func createNote(text: String = "", date: Date = Date(), versionSource: String? = nil,
+                           completing completions: [Int64: AgentResult] = [:]) throws -> NoteID {
         let title = NoteTitle.from(text)
-        let words = Int64(WordCount.count(text))
+        let words = WordCount.count(text)
         return try locked {
-            let t = date.timeIntervalSince1970
-            try db.run("INSERT INTO notes (created_at, updated_at, text, title, word_count) VALUES (?, ?, ?, ?, ?)",
-                       .double(t), .double(t), .text(text), .text(title), .int(words))
-            return db.lastInsertRowID
+            try db.transaction {
+                let t = date.timeIntervalSince1970
+                try db.run("INSERT INTO notes (created_at, updated_at, text, title, word_count) VALUES (?, ?, ?, ?, ?)",
+                           .double(t), .double(t), .text(text), .text(title), .int(Int64(words)))
+                let id = db.lastInsertRowID
+                if let versionSource {
+                    try insertVersionLocked(noteID: id, text: text, source: versionSource, date: date, words: words)
+                }
+                try completeLocked(completions, noteID: id)
+                return id
+            }
         }
     }
 
@@ -81,13 +98,101 @@ public final class Store: @unchecked Sendable {
     /// Saves new text for a note. Returns the updated summary, or nil if nothing changed.
     @discardableResult
     public func updateText(noteID: NoteID, text: String, date: Date = Date()) throws -> NoteSummary? {
+        try saveText(noteID: noteID, text: text, date: date)
+    }
+
+    /// Saves a note's text, and a version of it when `versionSource` is given, in one transaction, so the
+    /// two land together or not at all. `completing` records agent ops as done in the same transaction.
+    ///
+    /// Emptying a note first keeps what it said as a version, so clearing it can always be undone from its
+    /// history. Throws `StoreError.noteNotFound` or `.noteDeleted` rather than write where nobody will see it.
+    /// Returns the updated summary, or nil if nothing changed.
+    @discardableResult
+    public func saveText(noteID: NoteID, text: String, versionSource: String? = nil,
+                         completing completions: [Int64: AgentResult] = [:], date: Date = Date()) throws -> NoteSummary? {
         let title = NoteTitle.from(text)
-        let words = Int64(WordCount.count(text))
+        let words = WordCount.count(text)
+        // Compress outside the lock so a big note never holds up other readers.
+        let packed = versionSource == nil ? nil : Compression.pack(text)
         return try locked {
-            try db.run("UPDATE notes SET text = ?, title = ?, word_count = ?, updated_at = ? WHERE id = ? AND text IS NOT ?",
-                       .text(text), .text(title), .int(words), .double(date.timeIntervalSince1970), .int(noteID), .text(text))
-            guard db.changes > 0 else { return nil }
-            return try summaryLocked(noteID)
+            try db.transaction {
+                let old = try liveTextLocked(noteID)
+                var changed = false
+                if !old.utf8.elementsEqual(text.utf8) {
+                    if text.allSatisfy(\.isWhitespace), !old.allSatisfy(\.isWhitespace) {
+                        try insertVersionLocked(noteID: noteID, text: old, source: "user", date: date)
+                    }
+                    try db.run("UPDATE notes SET text = ?, title = ?, word_count = ?, updated_at = ? WHERE id = ?",
+                               .text(text), .text(title), .int(Int64(words)), .double(date.timeIntervalSince1970), .int(noteID))
+                    changed = true
+                }
+                if let versionSource,
+                   try insertVersionLocked(noteID: noteID, text: text, source: versionSource, date: date, packed: packed, words: words) != nil {
+                    changed = true
+                }
+                try completeLocked(completions, noteID: noteID)
+                return changed ? try summaryLocked(noteID) : nil
+            }
+        }
+    }
+
+    /// An agent's edit, all or nothing: a version of the text it replaces (as the user's), the new text, and a
+    /// version of that by the agent. Throws `StoreError.conflict` if the note no longer says `expected`, so an
+    /// edit worked out from an old read never overwrites a newer one.
+    @discardableResult
+    public func commitEdit(noteID: NoteID, expected: String, text: String, source: String,
+                           completing completions: [Int64: AgentResult] = [:], date: Date = Date()) throws -> NoteSummary? {
+        let title = NoteTitle.from(text)
+        let words = WordCount.count(text)
+        return try locked {
+            try db.transaction {
+                guard try liveTextLocked(noteID).utf8.elementsEqual(expected.utf8) else { throw StoreError.conflict(noteID) }
+                try insertVersionLocked(noteID: noteID, text: expected, source: "user", date: date)
+                try db.run("UPDATE notes SET text = ?, title = ?, word_count = ?, updated_at = ? WHERE id = ?",
+                           .text(text), .text(title), .int(Int64(words)), .double(date.timeIntervalSince1970), .int(noteID))
+                try insertVersionLocked(noteID: noteID, text: text, source: source, date: date, words: words)
+                try completeLocked(completions, noteID: noteID)
+                return try summaryLocked(noteID)
+            }
+        }
+    }
+
+    /// The text of a note that exists and isn't deleted.
+    private func liveTextLocked(_ noteID: NoteID) throws -> String {
+        let row = try db.prepare("SELECT text, deleted_at FROM notes WHERE id = ?")
+        defer { row.reset() }
+        try row.bind([.int(noteID)])
+        guard try row.step() else { throw StoreError.noteNotFound(noteID) }
+        guard row.isNull(1) else { throw StoreError.noteDeleted(noteID) }
+        return row.text(0)
+    }
+
+    public enum Discarded: Equatable, Sendable {
+        /// It never had anything in it, so it's gone.
+        case removed
+        /// It's empty now but has history, so it's in Recently Deleted.
+        case movedToRecentlyDeleted
+    }
+
+    /// Leaving an empty note: removes it if it never had anything in it, otherwise moves it to Recently
+    /// Deleted with its history. Returns nil, changing nothing, if it has text (or is already deleted).
+    public func discardIfBlank(noteID: NoteID, date: Date = Date()) throws -> Discarded? {
+        try locked {
+            try db.transaction {
+                let row = try db.prepare("SELECT text, version_count FROM notes WHERE id = ? AND deleted_at IS NULL")
+                try row.bind([.int(noteID)])
+                guard try row.step() else { row.reset(); return nil }
+                let blank = row.text(0).allSatisfy(\.isWhitespace)
+                let versions = row.int(1)
+                row.reset()
+                guard blank else { return nil }
+                if versions == 0 {
+                    try db.run("DELETE FROM notes WHERE id = ?", .int(noteID))
+                    return .removed
+                }
+                try db.run("UPDATE notes SET deleted_at = ? WHERE id = ?", .double(date.timeIntervalSince1970), .int(noteID))
+                return .movedToRecentlyDeleted
+            }
         }
     }
 
@@ -301,7 +406,12 @@ public final class Store: @unchecked Sendable {
     // MARK: State
 
     public func value(forKey key: String) -> String? {
-        try? locked {
+        try? storedValue(forKey: key)
+    }
+
+    /// Like `value(forKey:)`, but a database error is an error, not "not set".
+    public func storedValue(forKey key: String) throws -> String? {
+        try locked {
             let row = try db.prepare("SELECT value FROM state WHERE key = ?")
             defer { row.reset() }
             try row.bind([.text(key)])
@@ -326,9 +436,16 @@ public final class Store: @unchecked Sendable {
         set { setValue(newValue.map(String.init), forKey: "current_note") }
     }
 
-    /// Whether agents may change notes (BlackText → Allow Agents to Edit).
+    /// Whether agents may change notes (BlackText → Allow Agents to Edit). On by default; off if the
+    /// setting can't be read, since a broken database shouldn't hand agents permission.
     public var agentsCanEdit: Bool {
-        get { value(forKey: "agents_can_edit") != "0" }
+        get {
+            do {
+                return try storedValue(forKey: "agents_can_edit") != "0"
+            } catch {
+                return false
+            }
+        }
         set { setValue(newValue ? "1" : "0", forKey: "agents_can_edit") }
     }
 
@@ -433,7 +550,7 @@ public final class Store: @unchecked Sendable {
 
     /// Queues an agent edit for the running app to apply.
     public func enqueue(_ op: AgentOp) throws -> Int64 {
-        let payload = try op.edit.encodedPayload()
+        let payload = try op.edit.encodedPayload(pinned: op.pinned, target: op.targetUID)
         return try locked {
             try db.run("INSERT INTO inbox (created_at, kind, note_id, payload, source) VALUES (?, ?, ?, ?, ?)",
                        .double(Date().timeIntervalSince1970), .text(op.edit.kind), .from(op.noteID),
@@ -448,22 +565,51 @@ public final class Store: @unchecked Sendable {
             defer { row.reset() }
             var ops: [AgentOp] = []
             while try row.step() {
-                guard let edit = AgentEdit(kind: row.text(1), payload: row.text(3)) else { continue }
-                ops.append(AgentOp(id: row.int64(0), noteID: row.optionalInt64(2), edit: edit, source: row.text(4)))
+                guard let payload = try? JSONDecoder().decode(AgentEdit.Payload.self, from: Data(row.text(3).utf8)),
+                      let edit = AgentEdit(kind: row.text(1), payload: payload) else { continue }
+                var op = AgentOp(id: row.int64(0), noteID: row.optionalInt64(2), edit: edit, source: row.text(4))
+                op.pinned = payload.pinned ?? false
+                op.targetUID = payload.target
+                ops.append(op)
             }
             return ops
         }
     }
 
-    public func complete(opID: Int64, result: AgentResult) throws {
-        let encoded = String(decoding: try JSONEncoder().encode(result), as: UTF8.self)
+    public func pendingOpCount() throws -> Int {
         try locked {
-            try db.run("UPDATE inbox SET result = ?, done_at = ? WHERE id = ?",
-                       .text(encoded), .double(Date().timeIntervalSince1970), .int(opID))
-            // Keep the inbox small: finished ops are only needed until their caller reads them.
-            try db.run("DELETE FROM inbox WHERE done_at IS NOT NULL AND done_at < ?",
-                       .double(Date().timeIntervalSince1970 - 3600))
+            let row = try db.prepare("SELECT COUNT(*) FROM inbox WHERE done_at IS NULL")
+            defer { row.reset() }
+            return try row.step() ? row.int(0) : 0
         }
+    }
+
+    func hasOp(id: Int64) throws -> Bool {
+        try locked {
+            let row = try db.prepare("SELECT 1 FROM inbox WHERE id = ?")
+            defer { row.reset() }
+            try row.bind([.int(id)])
+            return try row.step()
+        }
+    }
+
+    public func complete(opID: Int64, result: AgentResult) throws {
+        try locked { try db.transaction { try completeLocked([opID: result]) } }
+    }
+
+    /// Records ops as done, for callers holding the lock inside a transaction. A result without a note gets
+    /// `noteID`, the note the op ended up changing.
+    func completeLocked(_ completions: [Int64: AgentResult], noteID: NoteID? = nil) throws {
+        guard !completions.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        for (opID, result) in completions where opID > 0 {
+            var result = result
+            if result.noteID == nil { result.noteID = noteID }
+            let encoded = String(decoding: try JSONEncoder().encode(result), as: UTF8.self)
+            try db.run("UPDATE inbox SET result = ?, done_at = ? WHERE id = ? AND done_at IS NULL", .text(encoded), .double(now), .int(opID))
+        }
+        // Keep the inbox small: finished ops are only needed until their caller reads them.
+        try db.run("DELETE FROM inbox WHERE done_at IS NOT NULL AND done_at < ?", .double(now - 3600))
     }
 
     /// The result of a queued op, or nil while it's still pending.
@@ -474,6 +620,21 @@ public final class Store: @unchecked Sendable {
             try row.bind([.int(opID)])
             guard try row.step(), let json = row.optionalText(0) else { return nil }
             return try JSONDecoder().decode(AgentResult.self, from: Data(json.utf8))
+        }
+    }
+}
+
+public enum StoreError: Error, Equatable, CustomStringConvertible {
+    case noteNotFound(NoteID)
+    case noteDeleted(NoteID)
+    /// The note changed between reading it and writing the edit.
+    case conflict(NoteID)
+
+    public var description: String {
+        switch self {
+        case .noteNotFound(let id): return "No note with id \(id)."
+        case .noteDeleted(let id): return "Note \(id) is in Recently Deleted."
+        case .conflict(let id): return "Note \(id) changed while the edit was being made."
         }
     }
 }

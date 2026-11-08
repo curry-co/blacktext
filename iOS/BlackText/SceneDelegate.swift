@@ -45,7 +45,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     private func finishLaunching() {
         // The CLI, agents or (later) a share extension changed the database.
-        notify_register_dispatch(AppLink.changedNotification, &notifyToken, .main) { [weak self] _ in
+        notify_register_dispatch(AppLink(database: DatabaseLocation.url).changedNotification, &notifyToken, .main) { [weak self] _ in
             self?.main?.databaseDidChange()
         }
         isListening = true
@@ -105,8 +105,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     /// The app may never come back from the background, so the save happens now and is waited for.
     func sceneDidEnterBackground(_ scene: UIScene) {
+        // Ask for time to finish, in case the write is slow.
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Save the open note")
         main?.editor.saveForBackground()
         Sync.cloud?.localChangesMayExist()
+        if task != .invalid { UIApplication.shared.endBackgroundTask(task) }
     }
 
     /// Saves now with a version if anything changed. Used when the scene or app is going away.

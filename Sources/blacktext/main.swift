@@ -13,41 +13,15 @@ Usage:
   blacktext replace FIND REPLACE [--note ID] [--first] [--case] [--word] [--regex] [--preserve-case]
   blacktext versions ID                     A note's saved versions
   blacktext version ID                      Print one version
+  blacktext status REQUEST                  What became of an edit that was still queued
   blacktext open                            Open BlackText
   blacktext mcp                             Run the MCP server on stdio, for AI agents
   blacktext mcp-config                      Print the MCP config to paste into an agent app
 
 Add --json to list, cat, search and versions for machine-readable output.
+Put -- before text that starts with a dash: blacktext append -- "-30 degrees"
 
 """
-
-struct Arguments {
-    var positional: [String] = []
-    var flags: Set<String> = []
-    var values: [String: String] = [:]
-
-    init(_ raw: [String]) {
-        var iterator = raw.makeIterator()
-        let takesValue: Set<String> = ["-n", "--note"]
-        while let arg = iterator.next() {
-            if takesValue.contains(arg) {
-                values[arg] = iterator.next()
-            } else if arg.hasPrefix("--") || (arg.hasPrefix("-") && arg.count == 2) {
-                flags.insert(arg)
-            } else {
-                positional.append(arg)
-            }
-        }
-    }
-
-    var findOptions: FindOptions {
-        FindOptions(matchCase: flags.contains("--case"), wholeWord: flags.contains("--word"), regex: flags.contains("--regex"))
-    }
-
-    var json: Bool { flags.contains("--json") }
-
-    func count(default value: Int) -> Int { values["-n"].flatMap(Int.init) ?? value }
-}
 
 struct CLIError: Error, CustomStringConvertible {
     let description: String
@@ -67,10 +41,7 @@ func inputText(_ args: [String]) throws -> String {
 }
 
 func noteID(_ string: String?) throws -> NoteID? {
-    guard let string else { return nil }
-    if string == "current" { return nil }
-    guard let id = NoteID(string) else { throw CLIError(description: "Not a note id: \(string)") }
-    return id
+    try CommandLineArguments.noteID(string)
 }
 
 let dateFormatter: DateFormatter = {
@@ -96,16 +67,23 @@ func executablePath() -> String {
     return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
 }
 
+func warn(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
+
 func report(_ result: AgentResult) throws {
     guard result.ok else { throw CLIError(description: result.error ?? "The edit failed.") }
-    if result.queued == true { FileHandle.standardError.write(Data("BlackText is busy; the edit will apply shortly.\n".utf8)) }
+    if result.queued == true {
+        let ask = result.request.map { " To see what became of it: blacktext status \($0)" } ?? ""
+        warn("BlackText hasn't applied the edit yet; it will when it can.\(ask)")
+    }
 }
 
 func run() throws {
     var raw = Array(CommandLine.arguments.dropFirst())
     guard !raw.isEmpty else { print(usage, terminator: ""); return }
     let command = raw.removeFirst()
-    let args = Arguments(raw)
+    let args = try CommandLineArguments(raw)
 
     if ["help", "-h", "--help"].contains(command) { print(usage, terminator: ""); return }
     if ["version", "--version", "-v"].contains(command) && args.positional.isEmpty { print(BlackText.version); return }
@@ -115,6 +93,7 @@ func run() throws {
         process.arguments = ["-b", Paths.bundleIdentifier]
         try process.run()
         process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw CLIError(description: "Couldn't open BlackText.") }
         return
     }
     if command == "mcp-config" {
@@ -130,18 +109,20 @@ func run() throws {
         MCPServer(service: service, version: BlackText.version).run()
 
     case "list", "ls":
-        let notes = try service.listNotes(limit: args.count(default: 20))
+        let notes = try service.listNotes(limit: try args.count(default: 20))
         if args.json { printJSON(notes.map(AgentJSON.summary)); return }
         notes.forEach { print(line(for: $0)) }
 
     case "cat", "read":
-        let note = try service.readNote(id: try noteID(args.positional.first))
+        let read = try service.read(id: try noteID(args.positional.first))
+        let note = read.note
+        if !read.isCurrent { warn("BlackText didn't confirm it had saved the open note; the last few seconds of typing may be missing.") }
         if args.json { printJSON(AgentJSON.note(note)); return }
         print(note.text, terminator: note.text.hasSuffix("\n") ? "" : "\n")
 
     case "search", "find":
         guard let query = args.positional.first else { throw CLIError(description: "Usage: blacktext search QUERY") }
-        let hits = try service.search(FindQuery(query, options: args.findOptions), limit: args.count(default: 20))
+        let hits = try service.search(FindQuery(query, options: args.findOptions), limit: try args.count(default: 20))
         if args.json { printJSON(hits.map(AgentJSON.hit)); return }
         for hit in hits {
             print(line(for: hit.note) + "  (\(hit.matchCount))")
@@ -172,8 +153,17 @@ func run() throws {
             print("\(String(version.id).leftPadded(to: 6))  \(dateFormatter.string(from: version.createdAt).leftPadded(to: 21))  \("\(version.wordCount) w".leftPadded(to: 9))\(by)")
         }
 
+    case "status":
+        guard let raw = args.positional.first, let request = Int64(raw), request > 0 else {
+            throw CLIError(description: "Usage: blacktext status REQUEST")
+        }
+        guard let result = try service.status(request: request) else { print("queued"); return }
+        if args.json { printJSON(AgentJSON.result(result)); return }
+        guard result.ok else { throw CLIError(description: result.error ?? "The edit failed.") }
+        print(result.replacements.map { "done, \($0) replaced" } ?? "done")
+
     case "version":
-        guard let raw = args.positional.first, let id = VersionID(raw) else { throw CLIError(description: "Usage: blacktext version ID") }
+        guard let raw = args.positional.first, let id = VersionID(raw), id > 0 else { throw CLIError(description: "Usage: blacktext version ID") }
         let version = try service.readVersion(id: id)
         print(version.text, terminator: version.text.hasSuffix("\n") ? "" : "\n")
 
