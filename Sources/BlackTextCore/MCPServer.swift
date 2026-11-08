@@ -28,13 +28,22 @@ public final class MCPServer {
         else { return encode(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "Parse error"]]) }
 
         let id = message["id"]
-        guard let method = message["method"] as? String else {
+        // Request ids are strings or numbers (not true/false, which JSON parsing also hands over as numbers).
+        let validID = id.map { $0 is String || ($0 is NSNumber && !Self.isBoolean($0)) } ?? true
+        guard let method = message["method"] as? String, message["jsonrpc"] as? String == "2.0", validID else {
             // A response to something we never send, or junk. Ignore responses, reject the rest.
-            return id == nil || message["result"] != nil || message["error"] != nil ? nil
-                : encode(["jsonrpc": "2.0", "id": id!, "error": ["code": -32600, "message": "Invalid request"]])
+            if message["method"] == nil, message["result"] != nil || message["error"] != nil { return nil }
+            if id == nil, message["method"] is String { return nil }
+            return encode(["jsonrpc": "2.0", "id": validID ? (id ?? NSNull()) : NSNull(),
+                           "error": ["code": -32600, "message": "Invalid request"]])
         }
-        let params = message["params"] as? [String: Any] ?? [:]
         guard let id else { return nil } // Notifications (initialized, cancelled…) need no answer.
+        let params: [String: Any]
+        switch message["params"] {
+        case nil, is NSNull: params = [:]
+        case let object as [String: Any]: params = object
+        default: return encode(["jsonrpc": "2.0", "id": id, "error": ["code": -32602, "message": "Invalid params"]])
+        }
 
         let result: [String: Any]
         switch method {
@@ -136,6 +145,12 @@ public final class MCPServer {
             "annotations": ["readOnlyHint": false, "destructiveHint": false],
         ],
         [
+            "name": "edit_status",
+            "description": "What became of an edit that was still queued (\"queued\": true) when it returned. Pass its request.",
+            "inputSchema": schema(["request": ["type": "integer", "minimum": 1]], required: ["request"]),
+            "annotations": ["readOnlyHint": true],
+        ],
+        [
             "name": "replace_in_note",
             "description": "Find and replace in a note (default: the open note). A version is saved first. Returns the number of replacements.",
             "inputSchema": schema(findFlags.merging([
@@ -150,51 +165,133 @@ public final class MCPServer {
     ]
 
     private func call(_ params: [String: Any]) -> [String: Any] {
-        let name = params["name"] as? String ?? ""
-        let args = params["arguments"] as? [String: Any] ?? [:]
         do {
-            let output = try run(tool: name, args: args)
+            guard let name = params["name"] as? String else { throw AgentError.invalid("Missing tool name.") }
+            let output = try run(tool: name, args: try ToolArguments(params["arguments"], for: name))
             return ["content": [["type": "text", "text": output]], "isError": false]
         } catch {
             return ["content": [["type": "text", "text": "\(error)"]], "isError": true]
         }
     }
 
-    private func run(tool: String, args: [String: Any]) throws -> String {
-        func int(_ key: String) -> Int64? { (args[key] as? NSNumber)?.int64Value }
-        func bool(_ key: String, _ fallback: Bool) -> Bool { (args[key] as? Bool) ?? fallback }
-        func string(_ key: String) throws -> String {
-            guard let value = args[key] as? String else { throw AgentError.invalid("Missing \"\(key)\".") }
+    static func isBoolean(_ value: Any) -> Bool {
+        guard let number = value as? NSNumber else { return false }
+        return CFGetTypeID(number) == CFBooleanGetTypeID()
+    }
+
+    /// A tool's arguments, checked against its schema: no unknown names, and each value the right type.
+    /// A value that's there but wrong is an error, never quietly read as "not given" (which for a note id
+    /// would mean the open note).
+    struct ToolArguments {
+        let values: [String: Any]
+
+        init(_ raw: Any?, for tool: String) throws {
+            switch raw {
+            case nil, is NSNull: values = [:]
+            case let object as [String: Any]: values = object
+            default: throw AgentError.invalid("Arguments must be an object.")
+            }
+            guard let spec = MCPServer.tools.first(where: { $0["name"] as? String == tool }) else {
+                throw AgentError.invalid("Unknown tool: \(tool)")
+            }
+            let schema = spec["inputSchema"] as? [String: Any]
+            let allowed = Set((schema?["properties"] as? [String: Any] ?? [:]).keys)
+            if let unknown = Set(values.keys).subtracting(allowed).sorted().first {
+                throw AgentError.invalid("Unknown argument \"\(unknown)\" for \(tool).")
+            }
+            for key in schema?["required"] as? [String] ?? [] where values[key] == nil || values[key] is NSNull {
+                throw AgentError.invalid("Missing \"\(key)\".")
+            }
+        }
+
+        private func present(_ key: String) -> Any? {
+            guard let value = values[key], !(value is NSNull) else { return nil }
             return value
         }
-        let options = FindOptions(matchCase: bool("match_case", false), wholeWord: bool("whole_word", false), regex: bool("regex", false))
+
+        /// A whole number in `range`, or nil if not given.
+        func integer(_ key: String, in range: ClosedRange<Int64>) throws -> Int64? {
+            guard let value = present(key) else { return nil }
+            guard let number = value as? NSNumber, !MCPServer.isBoolean(number) else {
+                throw AgentError.invalid("\"\(key)\" must be a whole number.")
+            }
+            let double = number.doubleValue
+            guard double.isFinite, double == double.rounded(), abs(double) < 9_007_199_254_740_992 else {
+                throw AgentError.invalid("\"\(key)\" must be a whole number.")
+            }
+            let integer = Int64(double)
+            guard range.contains(integer) else {
+                throw AgentError.invalid("\"\(key)\" must be between \(range.lowerBound) and \(range.upperBound).")
+            }
+            return integer
+        }
+
+        /// A note or version id, or nil if not given.
+        func id(_ key: String) throws -> Int64? {
+            try integer(key, in: 1...Int64.max)
+        }
+
+        func bool(_ key: String, _ fallback: Bool) throws -> Bool {
+            guard let value = present(key) else { return fallback }
+            guard MCPServer.isBoolean(value), let bool = value as? Bool else { throw AgentError.invalid("\"\(key)\" must be true or false.") }
+            return bool
+        }
+
+        func string(_ key: String) throws -> String {
+            guard let value = present(key) else { throw AgentError.invalid("Missing \"\(key)\".") }
+            guard let string = value as? String else { throw AgentError.invalid("\"\(key)\" must be a string.") }
+            return string
+        }
+    }
+
+    private func run(tool: String, args: ToolArguments) throws -> String {
+        func options() throws -> FindOptions {
+            FindOptions(matchCase: try args.bool("match_case", false), wholeWord: try args.bool("whole_word", false),
+                        regex: try args.bool("regex", false))
+        }
 
         switch tool {
         case "list_notes":
-            let notes = try service.listNotes(limit: Int(int("limit") ?? 20), offset: Int(int("offset") ?? 0))
+            let notes = try service.listNotes(limit: Int(try args.integer("limit", in: 1...500) ?? 20),
+                                              offset: Int(try args.integer("offset", in: 0...Int64(Int32.max)) ?? 0))
             return json(["notes": notes.map(AgentJSON.summary), "total": try service.store.noteCount()])
         case "read_note":
-            return json(AgentJSON.note(try service.readNote(id: int("id"))))
+            let read = try service.read(id: try args.id("id"))
+            var object = AgentJSON.note(read.note)
+            if !read.isCurrent {
+                object["stale"] = true
+                object["note"] = "BlackText didn't confirm it had saved the open note, so the last few seconds of typing may be missing."
+            }
+            return json(object)
         case "search":
-            let hits = try service.search(FindQuery(try string("query"), options: options), limit: Int(int("limit") ?? 20))
+            let hits = try service.search(FindQuery(try args.string("query"), options: try options()),
+                                          limit: Int(try args.integer("limit", in: 1...200) ?? 20))
             return json(["results": hits.map(AgentJSON.hit)])
         case "list_versions":
-            guard let id = int("note_id") else { throw AgentError.invalid("Missing \"note_id\".") }
+            guard let id = try args.id("note_id") else { throw AgentError.invalid("Missing \"note_id\".") }
             return json(["versions": try service.versions(noteID: id).map(AgentJSON.version)])
         case "read_version":
-            guard let id = int("version_id") else { throw AgentError.invalid("Missing \"version_id\".") }
+            guard let id = try args.id("version_id") else { throw AgentError.invalid("Missing \"version_id\".") }
             let version = try service.readVersion(id: id)
             var object = AgentJSON.version(version.summary)
             object["text"] = version.text
             return json(object)
         case "create_note":
-            return json(["id": try service.createNote(text: try string("text"))])
+            return json(["id": try service.createNote(text: try args.string("text"))])
         case "append_to_current":
-            return json(AgentJSON.result(try checked(service.appendToCurrent(text: try string("text"), newParagraph: bool("new_paragraph", true)))))
-        case "replace_in_note":
-            let result = try service.replace(in: int("note_id"), find: try string("find"), with: try string("replace"),
-                                             options: options, all: bool("all", true), preserveCase: bool("preserve_case", false))
+            let result = try service.appendToCurrent(text: try args.string("text"), newParagraph: try args.bool("new_paragraph", true))
             return json(AgentJSON.result(try checked(result)))
+        case "replace_in_note":
+            let result = try service.replace(in: try args.id("note_id"), find: try args.string("find"), with: try args.string("replace"),
+                                             options: try options(), all: try args.bool("all", true),
+                                             preserveCase: try args.bool("preserve_case", false))
+            return json(AgentJSON.result(try checked(result)))
+        case "edit_status":
+            guard let request = try args.id("request") else { throw AgentError.invalid("Missing \"request\".") }
+            guard let result = try service.status(request: request) else {
+                return json(["request": request, "queued": true, "note": "BlackText hasn't applied this edit yet."])
+            }
+            return json(AgentJSON.result(result))
         default:
             throw AgentError.invalid("Unknown tool: \(tool)")
         }
@@ -258,7 +355,15 @@ public enum AgentJSON {
         if let id = result.noteID { object["note_id"] = id }
         if let count = result.replacements { object["replacements"] = count }
         if let error = result.error { object["error"] = error }
-        if result.queued == true { object["queued"] = true; object["note"] = "BlackText is busy; the edit will apply shortly." }
+        if result.queued == true {
+            object["queued"] = true
+            if let request = result.request {
+                object["request"] = request
+                object["note"] = "BlackText hasn't applied this edit yet. Call edit_status with this request to see what became of it."
+            } else {
+                object["note"] = "BlackText is busy; the edit will apply shortly."
+            }
+        }
         return object
     }
 }

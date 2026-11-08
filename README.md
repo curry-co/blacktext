@@ -106,8 +106,11 @@ For Claude Desktop, Cursor and others, choose **BlackText → Copy MCP Config** 
 | `create_note` | A new note in the sidebar; never touches the canvas |
 | `append_to_current` | Adds to the open note, live and undoable |
 | `replace_in_note` | Find & replace in a note, with a version saved first |
+| `edit_status` | What became of an edit that was still queued when it returned |
 
-Agents can't delete. Uncheck **BlackText → Allow Agents to Edit** to make them read-only. While the app is running, agent edits go through it, so they never overwrite what you're typing. Every agent edit is recorded as a version tagged with the agent's name.
+Agents can't delete. Uncheck **BlackText → Allow Agents to Edit** to make them read-only. While the app is running, agent edits go through it, so they never overwrite what you're typing. Every agent edit is recorded as a version tagged with the agent's name. An edit lands on the note it was aimed at when it was asked for, even if you've moved to another note by the time it's applied, and it's applied once. If the app is busy, the call returns `queued` with a request to ask about.
+
+The agent name is a label the agent gives itself, not proof of who it is. Anything running as you can read and write the notes file directly, so the read-only setting keeps well-behaved agents in line; it isn't a security boundary.
 
 ## The `blacktext` command
 
@@ -119,14 +122,15 @@ blacktext new [TEXT…]              New note from TEXT or stdin
 blacktext append [TEXT…]           Append to the open note
 blacktext replace FIND REPLACE [--note ID] [--first] [--preserve-case]
 blacktext versions ID / version ID
+blacktext status REQUEST           What became of a queued edit
 blacktext mcp                      MCP server on stdio
 ```
 
-Add `--json` to `list`, `cat`, `search` and `versions` for machine-readable output.
+Add `--json` to `list`, `cat`, `search` and `versions` for machine-readable output. Put `--` before text that starts with a dash: `blacktext append -- "-30 degrees"`.
 
 ## Your data
 
-Everything lives in one SQLite file: `~/Library/Application Support/blacktext/blacktext.sqlite`. Time Machine backs it up. **File → Export All as Text** writes every note as a `.txt` file. Any SQLite tool can open it.
+Everything lives in one SQLite file: `~/Library/Application Support/blacktext/blacktext.sqlite`. Time Machine backs it up. Before a new version of BlackText changes the file's layout, it copies it to `Backups` next to it. If a save ever fails (a full disk, say), BlackText says so above the note, keeps retrying, and writes the text to `Recovered` next to the database in the meantime. **File → Export All as Text** writes every note as a `.txt` file. Any SQLite tool can open it.
 
 ## Speed
 

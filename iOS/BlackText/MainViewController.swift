@@ -282,6 +282,14 @@ final class MainViewController: UIViewController, EditorControllerDelegate, Side
         onLocalChange?()
     }
 
+    func editor(_ editor: EditorController, didCreate noteID: NoteID) {
+        if sidebar.mode == .notes {
+            sidebar.reloadNotes()
+            if editor.noteID == noteID { sidebar.setCurrentNote(noteID) }
+        }
+        onLocalChange?()
+    }
+
     func editorDidChangeText(_ editor: EditorController) {
         find.editorTextDidChange()
         if editor.preview == nil { sidebar.clearVersionSelection() }
@@ -358,10 +366,8 @@ final class MainViewController: UIViewController, EditorControllerDelegate, Side
 
     func deleteNote(_ id: NoteID) {
         let wasOpen = editor.noteID == id
-        if wasOpen {
-            editor.flush()
-            editor.open(noteID: nil)
-        }
+        // Leaving the note saves it first; if that can't be done safely, it stays open and isn't deleted.
+        if wasOpen, !editor.open(noteID: nil) { return }
         try? store.softDelete(noteID: id)
         onLocalChange?()
         sidebar.noteDidDisappear(id)
@@ -386,8 +392,7 @@ final class MainViewController: UIViewController, EditorControllerDelegate, Side
 
     /// Opens a new note with `text` (blacktext://new links).
     func openNewNote(text: String) {
-        guard let id = try? store.createNote(text: text) else { return }
-        _ = try? store.addVersion(noteID: id, text: text)
+        guard let id = try? store.createNote(text: text, versionSource: "user") else { return }
         onLocalChange?()
         if find.isVisible { find.hide() }
         if sidebar.mode != .notes { sidebar.showNotes() }
