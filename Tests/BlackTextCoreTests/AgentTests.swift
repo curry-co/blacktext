@@ -60,13 +60,15 @@ import Testing
         let app = AppLink(database: store.url)
         #expect(app.holdWhileRunning())
         #expect(service.link.isAppRunning)
-        service.appTimeout = 2
+        // Generous, because tests run in parallel and shared CI runners are slow. A passing run
+        // returns as soon as the app answers, so this only lengthens a failing one.
+        service.appTimeout = 10
 
-        // Pretend to be the app: answer queued ops from another thread.
+        // Pretend to be the app: answer queued ops from another thread, for as long as the service waits.
         let appStore = try Store(url: store.url)
         let done = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
-            for _ in 0..<200 {
+            for _ in 0..<1_000 {
                 if let op = try? appStore.pendingOps().first {
                     let result = (try? appStore.applyDirectly(op)) ?? .failure("failed")
                     try? appStore.complete(opID: op.id, result: result)
