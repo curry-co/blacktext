@@ -25,7 +25,15 @@ public final class CloudSync: CKSyncEngineDelegate, @unchecked Sendable {
     /// False for builds without the iCloud entitlement (like `make install`): CloudKit would crash them.
     /// Signed builds set `BlackTextCloudSync` in Info.plist.
     public static var isAvailable: Bool {
-        switch Bundle.main.object(forInfoDictionaryKey: "BlackTextCloudSync") {
+        isAvailable(flag: Bundle.main.object(forInfoDictionaryKey: "BlackTextCloudSync"),
+                    databaseOverridden: Paths.isDatabaseOverridden)
+    }
+
+    /// A database picked with `BLACKTEXT_DB` (benchmarks, screenshots, experiments) never syncs, even in a
+    /// signed build: its notes would go up to the signed-in account, and that account's notes would come down into it.
+    static func isAvailable(flag: Any?, databaseOverridden: Bool) -> Bool {
+        guard !databaseOverridden else { return false }
+        return switch flag {
         case let flag as Bool: flag
         case let flag as String: flag == "YES" || flag == "1" || flag == "true"
         default: false

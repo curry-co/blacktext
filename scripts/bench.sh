@@ -22,8 +22,20 @@ echo
 echo "Database"
 "$BIN/blacktext-bench" measure --db "$DB" || STATUS=$?
 
-APP=build/BlackText.app/Contents/MacOS/BlackText
-if [ -x "$APP" ]; then
+BUNDLE=build/BlackText.app
+APP=$BUNDLE/Contents/MacOS/BlackText
+# Release builds sync with iCloud. Newer ones never sync a BLACKTEXT_DB database, but older ones do, so
+# never launch a release build against the benchmark: its notes would end up in the real account.
+syncs() {
+  case "$(/usr/libexec/PlistBuddy -c "Print :BlackTextCloudSync" "$BUNDLE/Contents/Info.plist" 2>/dev/null)" in
+    true|YES|1) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if [ -x "$APP" ] && syncs; then
+  echo
+  echo "(build/BlackText.app is a release build, which syncs with iCloud. Run make app for one to time.)"
+elif [ -x "$APP" ]; then
   echo
   echo "App (process start → window drawn with the cursor in the note; median of 5)"
   launches=()

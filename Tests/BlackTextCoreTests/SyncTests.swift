@@ -174,6 +174,17 @@ import Testing
 import CloudKit
 
 @Suite struct CloudRecordTests {
+    @Test func onlySignedBuildsOnTheirOwnDatabaseSync() {
+        #expect(CloudSync.isAvailable(flag: true, databaseOverridden: false))
+        #expect(CloudSync.isAvailable(flag: "YES", databaseOverridden: false))
+        #expect(CloudSync.isAvailable(flag: "1", databaseOverridden: false))
+        #expect(!CloudSync.isAvailable(flag: nil, databaseOverridden: false), "make install has no flag")
+        #expect(!CloudSync.isAvailable(flag: "NO", databaseOverridden: false))
+        // A benchmark or screenshot database must never meet the signed-in iCloud account.
+        #expect(!CloudSync.isAvailable(flag: true, databaseOverridden: true))
+        #expect(!CloudSync.isAvailable(flag: "YES", databaseOverridden: true))
+    }
+
     @Test func notesRoundTripThroughRecordsWithEncryptedText() throws {
         let note = SyncNote(uid: "abc", text: String(repeating: "coffee, black. ", count: 100),
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), editedAt: Date(timeIntervalSince1970: 1_800_000_000),

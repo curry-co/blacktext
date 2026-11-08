@@ -5,11 +5,19 @@ public enum Paths {
 
     /// The database file. `BLACKTEXT_DB` overrides it (tests, benchmarks).
     public static var databaseURL: URL {
-        if let override = ProcessInfo.processInfo.environment["BLACKTEXT_DB"], !override.isEmpty {
+        if let override = databaseOverride {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("blacktext", isDirectory: true).appendingPathComponent("blacktext.sqlite")
+    }
+
+    /// True when `BLACKTEXT_DB` picks the database. Such a database never syncs (see `CloudSync.isAvailable`).
+    public static var isDatabaseOverridden: Bool { databaseOverride != nil }
+
+    private static var databaseOverride: String? {
+        guard let path = ProcessInfo.processInfo.environment["BLACKTEXT_DB"], !path.isEmpty else { return nil }
+        return path
     }
 
     /// Held by the running app; tells the CLI whether to route edits through it.
