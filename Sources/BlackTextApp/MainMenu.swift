@@ -42,6 +42,7 @@ enum MainMenu {
         menu.addItem(item("Allow Agents to Edit", #selector(AppDelegate.toggleAgentsCanEdit(_:)), target: delegate))
         menu.addItem(item("Copy MCP Config", #selector(AppDelegate.copyMCPConfig(_:)), target: delegate))
         menu.addItem(item("Install Command Line Tool…", #selector(AppDelegate.installCommandLineTool(_:)), target: delegate))
+        menu.addItem(item("iCloud Sync…", #selector(AppDelegate.showSyncStatus(_:)), target: delegate))
         menu.addItem(.separator())
         let services = NSMenu(title: "Services")
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")

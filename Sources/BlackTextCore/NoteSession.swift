@@ -51,6 +51,9 @@ public final class NoteSession {
     private var saved = 0
     /// A version a failed save still owes, with its source.
     private var owedVersion: String?
+    /// The text this session last saw stored (loaded, or handed to a save), so a save can tell when
+    /// something else wrote underneath it and keep that text as a version.
+    private var base: String?
     /// Agent ops whose edits are in the canvas. Each is recorded as done by the save that stores its edit, so
     /// a crash before that save leaves it to be applied again, never applied twice.
     private var owedCompletions: [Int64: AgentResult] = [:]
@@ -100,6 +103,7 @@ public final class NoteSession {
         retryTimer = nil
         generation += 1
         noteID = note?.id
+        base = note?.text
         edits = 0
         queued = 0
         saved = 0
@@ -182,14 +186,17 @@ public final class NoteSession {
         if versionSource != nil { policy.reset() }
         attempts += 1
         let attempt = Attempt(number: attempts, generation: generation, noteID: id, change: change,
-                              versionSource: versionSource, completions: Array(owedCompletions.keys))
+                              versionSource: versionSource, completions: Array(owedCompletions.keys), base: base)
         let completions = owedCompletions
+        let previousBase = base
+        base = text
         let saveStore = self.saveStore
         let mailbox = self.mailbox
         let redirects = self.redirects
         queue.async { [weak self] in
             let result = Result {
-                try Self.write(text, to: id, in: saveStore, versionSource: versionSource, completing: completions, redirects: redirects)
+                try Self.write(text, to: id, in: saveStore, versionSource: versionSource, base: previousBase,
+                               completing: completions, redirects: redirects)
             }
             mailbox.post(attempt, result)
             DispatchQueue.main.async { self?.drain() }
@@ -225,6 +232,7 @@ public final class NoteSession {
         var change: Int
         var versionSource: String?
         var completions: [Int64]
+        var base: String?
     }
 
     private enum Written {
@@ -258,11 +266,12 @@ public final class NoteSession {
     }
 
     /// Runs on the save queue.
-    private static func write(_ text: String, to id: NoteID, in store: Store, versionSource: String?,
+    private static func write(_ text: String, to id: NoteID, in store: Store, versionSource: String?, base: String?,
                               completing completions: [Int64: AgentResult], redirects: Redirects) throws -> Written {
         let target = redirects.map[id] ?? id
         do {
-            return .saved(try store.saveText(noteID: target, text: text, versionSource: versionSource, completing: completions))
+            return .saved(try store.saveText(noteID: target, text: text, versionSource: versionSource,
+                                             base: target == id ? base : nil, completing: completions))
         } catch StoreError.noteNotFound, StoreError.noteDeleted {
             // Deleted on another device (or removed) under unsaved typing: keep the typing as a note of its own.
             let newID = try store.createNote(text: text, versionSource: versionSource ?? "user", completing: completions)
@@ -313,8 +322,11 @@ public final class NoteSession {
 
         case .failure(let error):
             guard attempt.generation == generation else { return }
-            // The newest write failed, so the next save writes again.
-            if attempt.number == attempts { queued = saved }
+            // The newest write failed, so the next save writes again, from what was stored before it.
+            if attempt.number == attempts {
+                queued = saved
+                base = attempt.base
+            }
             if let source = attempt.versionSource, owedVersion == nil { owedVersion = source }
             fail(error)
         }

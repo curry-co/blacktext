@@ -13,7 +13,7 @@ public struct SchemaError: Error, CustomStringConvertible {
 
 enum Schema {
     /// Each entry upgrades the schema by one version.
-    private static let migrations = [version1, version2, version3]
+    private static let migrations = [version1, version2, version3, version4]
     static var currentVersion: Int { migrations.count }
 
     /// Upgrades to `target` (the latest by default; tests stop earlier to check an upgrade).
@@ -185,5 +185,56 @@ enum Schema {
         body BLOB NOT NULL
     );
     CREATE INDEX sync_orphans_by_note ON sync_orphans(note_uid);
+    """
+
+    /// Sync repairs. The outbox is rebuilt with every row (deletions included) and its ids, so that an id is
+    /// never handed out twice and a send's acknowledgement can only clear the row it was built from. Rows
+    /// that fail for good are marked rather than dropped. Removing a version (when its note is removed)
+    /// queues its deletion, since versions no longer go when their note does. Records this build can't
+    /// read are kept for a later one.
+    private static let version4 = """
+    DROP TRIGGER notes_sync_insert;
+    DROP TRIGGER notes_sync_update;
+    DROP TRIGGER notes_sync_delete;
+    DROP TRIGGER versions_sync_insert;
+
+    CREATE TABLE sync_outbox_v4 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        uid TEXT NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        failed_at REAL,
+        error TEXT,
+        UNIQUE (kind, uid) ON CONFLICT REPLACE
+    );
+    INSERT INTO sync_outbox_v4 (id, kind, uid, deleted) SELECT id, kind, uid, deleted FROM sync_outbox ORDER BY id;
+    DROP TABLE sync_outbox;
+    ALTER TABLE sync_outbox_v4 RENAME TO sync_outbox;
+
+    CREATE TRIGGER notes_sync_insert AFTER INSERT ON notes BEGIN
+        UPDATE notes SET uid = lower(hex(randomblob(16))) WHERE id = new.id AND uid IS NULL;
+        INSERT INTO sync_outbox (kind, uid) SELECT 'note', uid FROM notes WHERE id = new.id;
+    END;
+    CREATE TRIGGER notes_sync_update AFTER UPDATE OF text, created_at, updated_at, deleted_at ON notes BEGIN
+        INSERT INTO sync_outbox (kind, uid) VALUES ('note', new.uid);
+    END;
+    CREATE TRIGGER notes_sync_delete AFTER DELETE ON notes BEGIN
+        INSERT INTO sync_outbox (kind, uid, deleted) VALUES ('note', old.uid, 1);
+    END;
+    CREATE TRIGGER versions_sync_insert AFTER INSERT ON versions BEGIN
+        UPDATE versions SET uid = lower(hex(randomblob(16))) WHERE id = new.id AND uid IS NULL;
+        INSERT INTO sync_outbox (kind, uid) SELECT 'version', uid FROM versions WHERE id = new.id;
+    END;
+    CREATE TRIGGER versions_sync_delete AFTER DELETE ON versions WHEN old.uid IS NOT NULL BEGIN
+        INSERT INTO sync_outbox (kind, uid, deleted) VALUES ('version', old.uid, 1);
+    END;
+
+    CREATE TABLE sync_unreadable (
+        record_name TEXT PRIMARY KEY,
+        record_type TEXT NOT NULL,
+        record BLOB NOT NULL,
+        asset BLOB,
+        received_at REAL NOT NULL
+    ) WITHOUT ROWID;
     """
 }
