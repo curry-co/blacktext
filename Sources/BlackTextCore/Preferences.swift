@@ -73,6 +73,45 @@ public enum Preferences {
     }
 }
 
+/// The canvas's text size on iPhone and iPad, which follows the system Text Size setting (Dynamic Type).
+/// `Preferences.fontSize` is the size picked at the standard setting; the system setting scales it by how
+/// much bigger its body text is than standard. Pinching and ⌘+ / ⌘− change what's shown a point at a time.
+public struct CanvasTextSize: Equatable {
+    /// The system's body text size at the standard setting.
+    public static let standardBodySize: CGFloat = 17
+
+    /// The saved size, at the standard setting.
+    public let base: CGFloat
+    /// The system's body text size now, over the standard one.
+    public let scale: CGFloat
+
+    public init(base: CGFloat, systemBodySize: CGFloat) {
+        self.base = base.clamped(to: Preferences.fontSizeRange)
+        let scale = systemBodySize / Self.standardBodySize
+        self.scale = scale.isFinite && scale > 0 ? scale : 1
+    }
+
+    /// The size the canvas shows, in whole points.
+    public var points: CGFloat { (base * scale).rounded() }
+
+    /// The sizes the canvas can show at this setting: the saved range, scaled.
+    public var range: ClosedRange<CGFloat> {
+        let low = (Preferences.fontSizeRange.lowerBound * scale).rounded(.up)
+        let high = (Preferences.fontSizeRange.upperBound * scale).rounded(.down)
+        return low...max(low, high)
+    }
+
+    /// The saved size that shows `points` (rounded, and kept in range) at this setting.
+    public func base(showing points: CGFloat) -> CGFloat {
+        (points.rounded().clamped(to: range) / scale).clamped(to: Preferences.fontSizeRange)
+    }
+
+    /// A point bigger or smaller than shown now.
+    public func stepped(by delta: CGFloat) -> CanvasTextSize {
+        CanvasTextSize(base: base(showing: points + delta), systemBodySize: scale * Self.standardBodySize)
+    }
+}
+
 public extension Comparable {
     func clamped(to range: ClosedRange<Self>) -> Self {
         min(max(self, range.lowerBound), range.upperBound)

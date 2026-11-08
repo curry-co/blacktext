@@ -455,9 +455,9 @@ final class MainViewController: UIViewController, EditorControllerDelegate, Side
         }
     }
 
-    @objc func biggerText() { editor.setFontSize(Preferences.fontSize + 1) }
-    @objc func smallerText() { editor.setFontSize(Preferences.fontSize - 1) }
-    @objc func actualSizeText() { editor.setFontSize(Preferences.defaultFontSize) }
+    @objc func biggerText() { editor.stepTextSize(by: 1) }
+    @objc func smallerText() { editor.stepTextSize(by: -1) }
+    @objc func actualSizeText() { editor.resetTextSize() }
 
     @objc func previousNote() { stepNote(by: -1) }
     @objc func nextNote() { stepNote(by: 1) }
@@ -527,9 +527,9 @@ final class MainViewController: UIViewController, EditorControllerDelegate, Side
         case #selector(fileNoteAway):
             return editor.isCanvasFocused && editor.canFileAway
         case #selector(biggerText):
-            return Preferences.fontSize < Preferences.fontSizeRange.upperBound
+            return editor.canStepTextSize(by: 1)
         case #selector(smallerText):
-            return Preferences.fontSize > Preferences.fontSizeRange.lowerBound
+            return editor.canStepTextSize(by: -1)
         case #selector(replaceAllMatches):
             return find.isVisible && editor.preview == nil
         case #selector(useSelectionAsSearch):
