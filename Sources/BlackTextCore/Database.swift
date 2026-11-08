@@ -120,8 +120,14 @@ final class Statement {
                 status = sqlite3_bind_int64(raw, index, v)
             case .double(let v)?:
                 status = sqlite3_bind_double(raw, index, v)
-            case .text(let v)?:
-                status = sqlite3_bind_text(raw, index, v, -1, SQLITE_TRANSIENT)
+            case .text(var v)?:
+                // With its length, so text containing a NUL byte isn't cut short there. Empty text binds
+                // "" itself, since a nil pointer would bind NULL.
+                status = v.isEmpty ? sqlite3_bind_text(raw, index, "", 0, SQLITE_TRANSIENT) : v.withUTF8 { utf8 in
+                    utf8.withMemoryRebound(to: CChar.self) { chars in
+                        sqlite3_bind_text(raw, index, chars.baseAddress, Int32(chars.count), SQLITE_TRANSIENT)
+                    }
+                }
             case .blob(let v)?:
                 status = v.withUnsafeBytes { buffer in
                     sqlite3_bind_blob(raw, index, buffer.baseAddress, Int32(buffer.count), SQLITE_TRANSIENT)

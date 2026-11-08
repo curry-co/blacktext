@@ -156,6 +156,21 @@ func temporaryDatabase() -> URL {
         #expect(!store.agentsCanEdit)
     }
 
+    /// SQLite reads a C string up to its first NUL unless it's given the length.
+    @Test func textKeepsEverythingAfterANulByte() throws {
+        let text = "before\u{0}after"
+        let id = try store.createNote(text: text)
+        #expect(try store.note(id: id)?.text == text)
+        try store.updateText(noteID: id, text: text + " again")
+        #expect(try store.note(id: id)?.text == text + " again")
+        #expect(try store.search(FindQuery("after")).map(\.note.id) == [id])
+
+        let empty = try store.createNote(text: "")
+        #expect(try store.note(id: empty)?.text == "")
+        try store.updateText(noteID: id, text: "")
+        #expect(try store.note(id: id)?.text == "")
+    }
+
     @Test func twoConnectionsShareOneFile() throws {
         let other = try Store(url: store.url)
         let id = try store.createNote(text: "from one")
