@@ -30,27 +30,50 @@ jobs:
       - name: Tools
         run: |
           xcodebuild -version
-          brew install xcodegen
+          scripts/install-xcodegen.sh
 
       - name: Generate the Xcode project
         run: cd iOS && xcodegen generate
 
+      # By id, picked from the Simulators that exist, so a missing or renamed device fails here, plainly,
+      # with the list, instead of deep inside xcodebuild.
+      - name: Pick a Simulator
+        run: |
+          xcrun simctl list devices available
+          id=$(xcrun simctl list devices available -j | python3 -c '
+          import json, os, sys
+          devices = [d for runtime, ds in json.load(sys.stdin)["devices"].items() if "iOS" in runtime for d in ds]
+          wanted = os.environ["SIMULATOR"]
+          match = [d for d in devices if d["name"] == wanted] or [d for d in devices if d["name"].startswith("iPhone")]
+          print(match[-1]["udid"] if match else "")')
+          if [ -z "$id" ]; then echo "::error::No iPhone Simulator is available."; exit 1; fi
+          echo "SIMULATOR_ID=$id" >> "$GITHUB_ENV"
+
       - name: Build for the Simulator
         run: |
-          set -o pipefail
-          xcodebuild build -project iOS/BlackText.xcodeproj -scheme BlackText -configuration Debug \
-            -destination "platform=iOS Simulator,name=$SIMULATOR" -derivedDataPath build/ios \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | grep -E "error:|warning: .*BlackText|BUILD (SUCCEEDED|FAILED)" || true
-          test -d build/ios/Build/Products/Debug-iphonesimulator/BlackText.app
+          mkdir -p build
+          if ! xcodebuild build -project iOS/BlackText.xcodeproj -scheme BlackText -configuration Debug \
+               -destination "id=$SIMULATOR_ID" -derivedDataPath build/ios \
+               CODE_SIGNING_ALLOWED=NO > build/xcodebuild.log 2>&1; then
+            grep -E "error:|BUILD FAILED" build/xcodebuild.log | head -100 || tail -50 build/xcodebuild.log
+            exit 1
+          fi
+          grep -E "warning: .*BlackText|BUILD SUCCEEDED" build/xcodebuild.log || true
+          app=build/ios/Build/Products/Debug-iphonesimulator/BlackText.app
+          test -x "$app/BlackText"
+          plutil -lint "$app/PrivacyInfo.xcprivacy"
+          test -f "$app/LICENSE"
 
       - name: Screenshots
-        run: scripts/ios-screenshots.sh build/ios/Build/Products/Debug-iphonesimulator/BlackText.app build/screenshots
+        run: SIMULATOR="$SIMULATOR_ID" scripts/ios-screenshots.sh build/ios/Build/Products/Debug-iphonesimulator/BlackText.app build/screenshots
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: screenshots
-          path: build/screenshots
+          path: |
+            build/screenshots
+            build/xcodebuild.log
           if-no-files-found: ignore
 
   # Signs and uploads to TestFlight. Only for release tags and manual runs, never for pull requests,
@@ -61,21 +84,21 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     environment: testflight
-    env:
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # The signing secrets are given only to the steps that use them, not to the tools steps.
       - name: Check the secrets and the version
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          HAS_KEY_ID: ${{ secrets.ASC_KEY_ID != '' }}
+          HAS_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID != '' }}
+          HAS_KEY_P8: ${{ secrets.ASC_KEY_P8 != '' }}
         run: |
-          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_KEY_P8" ]; then
+          if [ "$HAS_KEY_ID" != true ] || [ "$HAS_ISSUER_ID" != true ] || [ "$HAS_KEY_P8" != true ]; then
             echo "::error::The App Store Connect secrets aren't available to the testflight environment."
             exit 1
           fi
@@ -86,7 +109,7 @@ jobs:
           fi
 
       - name: Tools
-        run: brew install xcodegen
+        run: scripts/install-xcodegen.sh
 
       - name: Generate the Xcode project
         run: cd iOS && xcodegen generate
@@ -94,4 +117,7 @@ jobs:
       - name: Archive and upload to TestFlight
         env:
           BUILD_NUMBER: ${{ github.run_number }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: scripts/ios-testflight.sh
