@@ -13,9 +13,12 @@ mkdir -p "$(dirname "$DB")"
 swift build -c release --product blacktext-bench >/dev/null
 BIN=$(swift build -c release --show-bin-path)
 
-if [ ! -f "$DB" ]; then
+# A database seeded before the tool marked its own (with DB.bench) is replaced only in the default place.
+if [ ! -f "$DB.bench" ]; then
   echo "Seeding $YEARS years at $WORDS words a day → $DB"
-  "$BIN/blacktext-bench" seed --db "$DB" --years "$YEARS" --words-per-day "$WORDS"
+  replace=()
+  if [ -z "${BENCH_DB:-}" ]; then replace=(--replace); fi
+  "$BIN/blacktext-bench" seed --db "$DB" --years "$YEARS" --words-per-day "$WORDS" ${replace[@]+"${replace[@]}"}
 fi
 
 echo

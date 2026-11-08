@@ -89,12 +89,28 @@ func argument(_ name: String, default value: String? = nil) -> String? {
     return args[index + 1]
 }
 
+/// Seeding replaces the database and measuring writes to it, so both only touch benchmark databases:
+/// never the real library, and never an existing file that this tool didn't seed (it leaves a `.bench`
+/// marker beside each), unless `--replace` says to.
+func checkBenchmarkDatabase(_ path: String, replacing: Bool) {
+    let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    let library = support.appendingPathComponent("blacktext/blacktext.sqlite").standardizedFileURL.resolvingSymlinksInPath()
+    if url.path == library.path { fatalError("\(path) is BlackText's real library. Use a benchmark database.") }
+    let seeded = FileManager.default.fileExists(atPath: path + ".bench")
+    if FileManager.default.fileExists(atPath: path), !seeded, !replacing {
+        fatalError("\(path) wasn't made by blacktext-bench seed. Leaving it alone (pass --replace to seed over it).")
+    }
+}
+
 func seed() throws {
     guard let path = argument("--db") else { fatalError("--db PATH required") }
     let years = Double(argument("--years", default: "10")!)!
     let wordsPerDay = Int(argument("--words-per-day", default: "10000")!)!
-    for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: path + suffix) }
+    checkBenchmarkDatabase(path, replacing: CommandLine.arguments.contains("--replace"))
+    for suffix in ["", "-wal", "-shm", ".bench"] { try? FileManager.default.removeItem(atPath: path + suffix) }
     let store = try Store(url: URL(fileURLWithPath: path))
+    FileManager.default.createFile(atPath: path + ".bench", contents: Data("seeded by blacktext-bench\n".utf8))
     var rng = SplitMix64(state: 42)
     let days = Int(years * 365)
     let start = Date().addingTimeInterval(-Double(days) * 86_400)
@@ -165,6 +181,10 @@ func report(_ name: String, _ ms: Double, target: Double?) {
 
 func measure() throws {
     guard let path = argument("--db") else { fatalError("--db PATH required") }
+    guard FileManager.default.fileExists(atPath: path + ".bench") else {
+        fatalError("\(path) wasn't made by blacktext-bench seed, and measuring writes to it. Seed one first.")
+    }
+    checkBenchmarkDatabase(path, replacing: false)
     let url = URL(fileURLWithPath: path)
     var store: Store!
     report("Open the database", try time { store = try Store(url: url) }, target: 20)

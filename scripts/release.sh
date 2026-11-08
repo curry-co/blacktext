@@ -27,9 +27,19 @@ notarize() {
   xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m
 }
 
+# A release is signed, notarized and syncs, or it says plainly that it isn't: ALLOW_UNSIGNED=1 for a build
+# that opens only on this Mac, ALLOW_NO_SYNC=1 for one without iCloud.
 if [ -z "$IDENTITY" ]; then
+  if [ "${ALLOW_UNSIGNED:-}" != 1 ]; then
+    echo "No Developer ID identity in the keychain. Set ALLOW_UNSIGNED=1 for a build that opens only on this Mac." >&2
+    exit 1
+  fi
   echo "No Developer ID identity in the keychain: keeping the ad-hoc signature (opens only on this Mac)." >&2
 else
+  if [ ! -f "$PROFILE" ] && [ "${ALLOW_NO_SYNC:-}" != 1 ]; then
+    echo "No provisioning profile at $PROFILE, so this build couldn't sync. Set ALLOW_NO_SYNC=1 to build it anyway." >&2
+    exit 1
+  fi
   echo "Signing with $IDENTITY"
   entitlements=()
   if [ -f "$PROFILE" ]; then
@@ -49,6 +59,14 @@ else
   codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP/Contents/Helpers/blacktext"
   codesign --force --options runtime --timestamp --sign "$IDENTITY" ${entitlements[@]+"${entitlements[@]}"} "$APP"
   codesign --verify --strict --deep "$APP"
+  if [ -f "$PROFILE" ]; then
+    # The signature has to carry the iCloud entitlements for the right CloudKit environment.
+    granted=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null)
+    for key in com.apple.developer.icloud-container-identifiers com.apple.developer.icloud-container-environment; do
+      grep -q "$key" <<<"$granted" || { echo "The signed app is missing $key." >&2; exit 1; }
+    done
+    grep -q "<string>$CLOUD_ENV</string>" <<<"$granted" || { echo "The signed app isn't set to CloudKit $CLOUD_ENV." >&2; exit 1; }
+  fi
 
   if [ -n "$NOTARY_PROFILE" ]; then
     # Notarize and staple the app itself, so it carries its own ticket once it's out of the disk image.
@@ -56,6 +74,7 @@ else
     ditto -c -k --keepParent "$APP" "$ZIP"
     notarize "$ZIP"
     xcrun stapler staple "$APP"
+    spctl --assess --type execute "$APP"
   fi
 fi
 

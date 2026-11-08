@@ -29,6 +29,12 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: BlackText
+        excludes: [PrivacyInfo.xcprivacy]
+      # Required by the App Store: what the app does with the APIs Apple asks about (just its own defaults).
+      - path: BlackText/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: ../LICENSE
+        buildPhase: resources
     dependencies:
       - package: blacktext
         product: BlackTextCore
