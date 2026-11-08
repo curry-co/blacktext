@@ -53,7 +53,7 @@ PLAN.md's principle 5 ("No account, no cloud") becomes: **your notes stay yours.
 | ⌫ on a note → Recently Deleted, Put Back | Swipe left on a row → Delete. Recently Deleted at the bottom of the sidebar, with Put Back. |
 | Version preview bar: `date · words · Copy · New Note from This · Done` | Same bar, same actions. |
 | Find bar: One/All, Aa, W, .*, Note/All notes, replace row, Replace All (n), preserve case, match marks | Same bar at the top of the canvas, the same toggles, live as you type, match marks on the right edge. Search all notes turns the sidebar into results, as on the Mac. |
-| ⌘+ / ⌘− / ⌘0 text size | Pinch the canvas; the same keys on a hardware keyboard. |
+| ⌘+ / ⌘− / ⌘0 text size | Starts from the system Text Size (Dynamic Type), so a larger system setting means larger notes. Pinch the canvas, or the same keys on a hardware keyboard, to go a point bigger or smaller from there. |
 | Light / dark, monochrome caret and selection | Same colors, same toggle. First launch follows the system. |
 | Spell-check on; smart quotes, dashes, autocorrect, auto-capitalization off | Same. |
 | Paste strips formatting | Same. |
