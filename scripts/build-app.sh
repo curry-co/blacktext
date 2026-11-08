@@ -36,6 +36,7 @@ cp "$BIN/BlackTextApp" "$APP/Contents/MacOS/BlackText"
 cp "$BIN/blacktext" "$APP/Contents/Helpers/blacktext"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" Resources/Info.plist > "$APP/Contents/Info.plist"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp LICENSE "$APP/Contents/Resources/LICENSE"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # Ad-hoc signature: enough to run on this Mac. scripts/release.sh re-signs with a Developer ID.

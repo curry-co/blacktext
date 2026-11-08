@@ -8,10 +8,10 @@ It saves as you type and keeps a timestamped version of each note as it grows. Y
 
 Find & replace is instant, in one note or across all of them. BlackText opens as fast after ten years of notes as it did on the first day. Your AI agents, like Claude, GPT and Grok, can read, search and write to it.
 
-It runs on your Mac and keeps everything in one file that belongs to you. It needs no account and no cloud, and it's open source.
+It runs on your Mac and keeps everything in one file that belongs to you. It needs no account, and it's open source. Signed releases can keep your notes in step across your devices through your own private iCloud; nothing else ever sees them.
 
 - **Plain text only.** One font, one size, black and white. Paste strips formatting.
-- **Never lose a word.** Saved about a second after you pause. A version every 100 words changed.
+- **Never lose a word.** Saved about a second after you pause. A version every 100 words changed. If a save ever fails, it says so and keeps a copy.
 - **⌘↩ files the note away** and gives you a fresh one. ⌘Z brings it back.
 - **Find & replace** that's live as you type: one match at a time or all at once, inverted highlights, match marks, whole word, regex, preserve case, and search across every note.
 - **Fast at any size.** Launch does the same work after ten years as on day one.
@@ -31,7 +31,7 @@ I take my coffee black. I wanted my notes the same way: nothing added.
 
 **History is honest.** Each version is saved when it happened. You can edit any note, but you can't rewrite the past.
 
-**Your notes are yours.** They live in one file on your machine, with no account, no cloud and no lock-in. It's open source, so you never have to take my word for it.
+**Your notes are yours.** They live in one file on your machine, with no account and no lock-in. With iCloud sync on, they also go to your own private iCloud database, encrypted in transit and on Apple's servers (and end to end, if you turn on Advanced Data Protection), and to nowhere else. It's open source, so you never have to take my word for it.
 
 **Agents are guests.** They can read, search and write. They can't delete, and every change they make is saved as a version with their name on it.
 
@@ -130,7 +130,20 @@ Add `--json` to `list`, `cat`, `search` and `versions` for machine-readable outp
 
 ## Your data
 
-Everything lives in one SQLite file: `~/Library/Application Support/blacktext/blacktext.sqlite`. Time Machine backs it up. Before a new version of BlackText changes the file's layout, it copies it to `Backups` next to it. If a save ever fails (a full disk, say), BlackText says so above the note, keeps retrying, and writes the text to `Recovered` next to the database in the meantime. **File → Export All as Text** writes every note as a `.txt` file. Any SQLite tool can open it.
+Everything lives in one SQLite file: `~/Library/Application Support/blacktext/blacktext.sqlite`. Time Machine backs it up, and any SQLite tool can open it.
+
+- **File → Back Up Notes…** writes a complete copy, history and Recently Deleted included. To restore it, quit BlackText and put it in place of the file above; it won't sync until you turn sync back on, and then it's merged with iCloud, keeping both texts wherever a note differs.
+- **File → Export All as Text** writes every note as a `.txt` file.
+- Before a new version of BlackText changes the file's layout, it copies it to `Backups` next to it. An older BlackText won't open a file a newer one has changed; it says to update instead.
+- If a save ever fails (a full disk, say), BlackText says so above the note, keeps retrying, and writes the text to `Recovered` next to the file in the meantime. Quitting with unsaved changes asks first.
+- Emptying a note keeps what it said as a version, and an emptied note you leave goes to Recently Deleted for 30 days.
+- A crash of the app never loses a save. SQLite runs in write-ahead mode with `synchronous = NORMAL`, so a power cut or a crash of macOS itself can lose the last few saves before it.
+
+## iCloud sync
+
+Releases signed by the project (not builds you make yourself) sync through a private CloudKit database in your iCloud account: every note, its history and Recently Deleted. When two devices change a note at once, the newer text wins and the other is kept as a version, labeled with the device it came from.
+
+Sync stops and asks before doing anything if you delete BlackText's data from iCloud (Settings), reset your encrypted iCloud data, or sign in to a different iCloud account. The notes on the device are always kept. **BlackText → iCloud Sync…** shows what's waiting to be sent and anything iCloud refused.
 
 ## Speed
 

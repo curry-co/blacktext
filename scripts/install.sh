@@ -6,15 +6,44 @@ cd "$(dirname "$0")/.."
 DEST="$HOME/Applications"
 mkdir -p "$DEST" "$HOME/.local/bin"
 
+APP="$DEST/BlackText.app"
+NEW="$DEST/.BlackText.app.new"
+OLD="$DEST/.BlackText.app.old"
+LINK="$HOME/.local/bin/blacktext"
+CLI="$APP/Contents/Helpers/blacktext"
+
+# Something else called blacktext in ~/.local/bin isn't ours to replace.
+if [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
+  echo "$LINK exists and isn't a link to BlackText; leaving it alone. Move it aside and run this again." >&2
+  exit 1
+fi
+
+# Copy and check the new app before touching the old one.
+rm -rf "$NEW"
+cp -R build/BlackText.app "$NEW"
+codesign --verify --strict "$NEW"
+
 if pgrep -xq BlackText; then
   echo "Quitting the running BlackText…"
   osascript -e 'tell application id "co.curry.blacktext" to quit' >/dev/null 2>&1 || true
-  sleep 1
+  for _ in $(seq 50); do pgrep -xq BlackText || break; sleep 0.2; done
+  if pgrep -xq BlackText; then
+    rm -rf "$NEW"
+    echo "BlackText is still running (it may be asking about unsaved changes). Quit it and run this again." >&2
+    exit 1
+  fi
 fi
 
-rm -rf "$DEST/BlackText.app"
-cp -R build/BlackText.app "$DEST/BlackText.app"
-ln -sf "$DEST/BlackText.app/Contents/Helpers/blacktext" "$HOME/.local/bin/blacktext"
+# Swap, keeping the old app until the new one is in place.
+rm -rf "$OLD"
+if [ -e "$APP" ]; then mv "$APP" "$OLD"; fi
+if ! mv "$NEW" "$APP"; then
+  if [ -e "$OLD" ]; then mv "$OLD" "$APP"; fi
+  echo "Couldn't put the new BlackText in place; the old one is back." >&2
+  exit 1
+fi
+rm -rf "$OLD"
+ln -sfn "$CLI" "$LINK"
 
 # Register the app (URL scheme, Services menu) with Launch Services.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST/BlackText.app"

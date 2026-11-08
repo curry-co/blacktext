@@ -65,4 +65,6 @@ public struct SearchHit: Equatable, Sendable {
     public var snippet: String
     /// UTF-16 ranges of matches inside `snippet`.
     public var snippetMatches: [NSRange]
+    /// Counting stopped at `matchCount`; there may be more ("10,000+").
+    public var isCountCapped = false
 }

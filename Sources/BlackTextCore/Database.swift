@@ -73,6 +73,13 @@ final class Database {
         statement.reset()
     }
 
+    /// Runs `body` in a read transaction, so all its statements see one snapshot of the database.
+    func read<T>(_ body: () throws -> T) throws -> T {
+        try execute("BEGIN")
+        defer { try? execute("COMMIT") }
+        return try body()
+    }
+
     func transaction<T>(_ body: () throws -> T) throws -> T {
         try execute("BEGIN IMMEDIATE")
         do {

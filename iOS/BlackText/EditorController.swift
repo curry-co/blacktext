@@ -45,7 +45,7 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
     /// The note the last ⌘↩ / Save+New filed away, while the Undo button is on offer.
     private var filedNoteID: NoteID?
     private var undoOffer: Task<Void, Never>?
-    private var pinchStartSize: CGFloat = 0
+    private var pinchStartPoints: CGFloat = 0
     private var needsInitialScroll = false
     private var lastTextHeight: CGFloat = 0
 
@@ -151,6 +151,10 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
         pinch.delegate = self
         canvas.addGestureRecognizer(pinch)
         view = root
+        let points = textSize.points
+        textView.applyFontSize(points)
+        previewTextView.applyFontSize(points)
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self], action: #selector(systemTextSizeDidChange))
         updateSaveNewButton()
     }
 
@@ -492,12 +496,43 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
 
     // MARK: Text size
 
-    func setFontSize(_ size: CGFloat) {
-        Preferences.fontSize = size
+    /// The saved size, scaled by the system Text Size setting.
+    var textSize: CanvasTextSize {
+        var category = traitCollection.preferredContentSizeCategory
+        if category == .unspecified { category = UIApplication.shared.preferredContentSizeCategory }
+        let body = UIFont.preferredFont(forTextStyle: .body, compatibleWith: UITraitCollection(preferredContentSizeCategory: category))
+        return CanvasTextSize(base: Preferences.fontSize, systemBodySize: body.pointSize)
+    }
+
+    /// ⌘+ and ⌘−: a point bigger or smaller.
+    func stepTextSize(by delta: CGFloat) {
+        Preferences.fontSize = textSize.stepped(by: delta).base
+        applyTextSize()
+    }
+
+    /// ⌘0: the standard size, scaled by the system setting.
+    func resetTextSize() {
+        Preferences.fontSize = Preferences.defaultFontSize
+        applyTextSize()
+    }
+
+    func canStepTextSize(by delta: CGFloat) -> Bool {
+        let size = textSize
+        return size.range.contains(size.points + delta)
+    }
+
+    @objc private func systemTextSizeDidChange() {
+        applyTextSize()
+    }
+
+    /// Shows the text at the current size, keeping the same text in view.
+    private func applyTextSize() {
+        let points = textSize.points
+        guard points != textView.fontSize || points != previewTextView.fontSize else { return }
         let active = activeTextView
         let anchor = active.scrollAnchor
-        textView.applyFontSize(Preferences.fontSize)
-        previewTextView.applyFontSize(Preferences.fontSize)
+        textView.applyFontSize(points)
+        previewTextView.applyFontSize(points)
         active.layoutIfNeeded()
         active.restoreScrollAnchor(anchor)
         // Match marks move with the text.
@@ -508,10 +543,13 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
     @objc private func pinched(_ recognizer: UIPinchGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            pinchStartSize = Preferences.fontSize
+            pinchStartPoints = textSize.points
         case .changed:
-            let size = (pinchStartSize * recognizer.scale).rounded().clamped(to: Preferences.fontSizeRange)
-            if size != Preferences.fontSize { setFontSize(size) }
+            let size = textSize
+            let points = (pinchStartPoints * recognizer.scale).rounded().clamped(to: size.range)
+            guard points != size.points else { return }
+            Preferences.fontSize = size.base(showing: points)
+            applyTextSize()
         default:
             break
         }
@@ -533,7 +571,7 @@ final class EditorController: UIViewController, UITextViewDelegate, UIGestureRec
         case .version(let version):
             guard let loaded = try? store.version(id: version.id) else { return }
             text = loaded.text
-            let by = version.agentName.map { " · by \($0)" } ?? ""
+            let by = version.origin.map { " · \($0)" } ?? ""
             label = "\(Format.dateTime(version.createdAt)) · \(Format.words(version.wordCount))\(by)"
             actions = [
                 ("Copy", { [weak self] in self?.copyPreview() }),

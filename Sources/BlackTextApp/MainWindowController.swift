@@ -44,6 +44,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         editor.delegate = self
         sidebar.delegate = self
         editor.onPutBack = { [weak self] id in self?.putBack(id) }
+        find.showSidebar = { [weak self] in
+            guard let self, self.sidebarItem.isCollapsed else { return }
+            self.toggleNoteSidebar(nil)
+        }
         buildContent()
         if !window.setFrameUsingName("main") { window.center() }
         window.setFrameAutosaveName("main")
@@ -149,6 +153,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     func editor(_ editor: EditorController, didSave summary: NoteSummary) {
         sidebar.noteDidSave(summary)
+        find.notesDidChange()
         // A blank canvas becomes a note on its first save; select it once, without scrolling on every save.
         if sidebar.mode == .notes, sidebar.currentNoteID != editor.noteID { sidebar.setCurrentNote(editor.noteID) }
         onLocalChange?()
@@ -276,6 +281,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// and the sidebar.
     func remoteNotesDidChange(_ ids: Set<NoteID>) {
         editor.reloadAfterRemoteChange(ids)
+        // The canvas may have new text; matches and all-notes results follow it.
+        find.editorTextDidChange()
+        find.notesDidChange()
         switch sidebar.mode {
         case .notes: sidebar.reloadNotes()
         case .deleted: sidebar.showRecentlyDeleted()
@@ -286,6 +294,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Something outside the app changed the database (the CLI or an agent).
     func databaseDidChange() {
         if sidebar.mode == .notes { sidebar.reloadNotes() }
+        find.notesDidChange()
     }
 
     // MARK: Actions

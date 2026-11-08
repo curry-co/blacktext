@@ -63,6 +63,7 @@ final class EditorTextView: UITextView {
         alwaysBounceVertical = true
         showsHorizontalScrollIndicator = false
         contentInsetAdjustmentBehavior = .never
+        // EditorController scales the text by the system Text Size itself (CanvasTextSize).
         adjustsFontForContentSizeCategory = false
         if #available(iOS 18.0, *) {
             // Writing Tools may rewrite, but only ever as plain text.
@@ -156,7 +157,12 @@ final class EditorTextView: UITextView {
 
     // MARK: Find highlights
 
+    /// Ranges past the end of the text (from a search of text that has since got shorter) are dropped:
+    /// TextKit throws on them.
     func setFindHighlights(_ matches: [NSRange], current: Int?, highlightAll: Bool) {
+        let length = textStorage.length
+        let matches = matches.last.map { NSMaxRange($0) <= length } ?? true ? matches : matches.filter { NSMaxRange($0) <= length }
+        let current = current.flatMap { matches.indices.contains($0) ? $0 : nil }
         findMatches = matches
         currentMatch = current
         self.highlightAll = highlightAll
@@ -209,6 +215,7 @@ final class EditorTextView: UITextView {
 
     /// Where a range sits, in this view's content coordinates.
     func rect(for range: NSRange) -> CGRect {
+        let range = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
         layoutManager.ensureLayout(forCharacterRange: range)
         let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         return layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
@@ -293,7 +300,9 @@ final class FindLayoutManager: NSLayoutManager {
     private func highlightedIndices(forGlyphRange glyphs: NSRange) -> [Int] {
         guard !matches.isEmpty else { return [] }
         let characters = characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        return matchIndices(overlapping: characters).filter { highlightAll || $0 == current }
+        // Typing may have shortened the text since the matches were found; they're redone shortly.
+        let length = textStorage?.length ?? 0
+        return matchIndices(overlapping: characters).filter { (highlightAll || $0 == current) && NSMaxRange(matches[$0]) <= length }
     }
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {

@@ -346,8 +346,11 @@ public enum AgentJSON {
     }
 
     public static func version(_ version: VersionSummary) -> [String: Any] {
-        ["id": version.id, "note_id": version.noteID, "created": date(version.createdAt),
-         "words": version.wordCount, "by": version.agentName ?? "user"]
+        var object: [String: Any] = ["id": version.id, "note_id": version.noteID, "created": date(version.createdAt),
+                                     "words": version.wordCount, "by": version.agentName ?? "user"]
+        // Text kept when two devices edited the note at once, from the device whose text it was.
+        if let device = version.deviceName { object["from_device"] = device }
+        return object
     }
 
     public static func result(_ result: AgentResult) -> [String: Any] {

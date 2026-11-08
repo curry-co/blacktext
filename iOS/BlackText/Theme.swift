@@ -6,8 +6,10 @@ import BlackTextCore
 enum Palette {
     static let background = dynamic(light: .white, dark: .black)
     static let text = dynamic(light: .black, dark: UIColor(white: 0.93, alpha: 1))
-    static let secondaryText = dynamic(light: UIColor(white: 0, alpha: 0.45), dark: UIColor(white: 1, alpha: 0.45))
-    static let tertiaryText = dynamic(light: UIColor(white: 0, alpha: 0.25), dark: UIColor(white: 1, alpha: 0.28))
+    /// At least 4.5:1 against the background (4.8 light, 5.3 dark), more with Increase Contrast.
+    static let secondaryText = translucentText(light: 0.55, dark: 0.5, increased: 0.75)
+    /// Disabled controls and placeholders only.
+    static let tertiaryText = translucentText(light: 0.38, dark: 0.4, increased: 0.6)
     static let selection = dynamic(light: UIColor(white: 0, alpha: 0.15), dark: UIColor(white: 1, alpha: 0.25))
     static let rowTint = dynamic(light: UIColor(white: 0, alpha: 0.06), dark: UIColor(white: 1, alpha: 0.10))
     static let currentRowTint = dynamic(light: UIColor(white: 0, alpha: 0.11), dark: UIColor(white: 1, alpha: 0.17))
@@ -26,6 +28,15 @@ enum Palette {
 
     static func dynamic(light: UIColor, dark: UIColor) -> UIColor {
         UIColor { traits in traits.userInterfaceStyle == .dark ? dark : light }
+    }
+
+    /// Black or white text at an opacity, more opaque when Increase Contrast is on.
+    static func translucentText(light: CGFloat, dark: CGFloat, increased: CGFloat) -> UIColor {
+        UIColor { traits in
+            let isDark = traits.userInterfaceStyle == .dark
+            let alpha = traits.accessibilityContrast == .high ? increased : (isDark ? dark : light)
+            return UIColor(white: isDark ? 1 : 0, alpha: alpha)
+        }
     }
 }
 

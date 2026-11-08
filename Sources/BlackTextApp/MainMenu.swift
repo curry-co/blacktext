@@ -42,6 +42,7 @@ enum MainMenu {
         menu.addItem(item("Allow Agents to Edit", #selector(AppDelegate.toggleAgentsCanEdit(_:)), target: delegate))
         menu.addItem(item("Copy MCP Config", #selector(AppDelegate.copyMCPConfig(_:)), target: delegate))
         menu.addItem(item("Install Command Line Tool…", #selector(AppDelegate.installCommandLineTool(_:)), target: delegate))
+        menu.addItem(item("iCloud Sync…", #selector(AppDelegate.showSyncStatus(_:)), target: delegate))
         menu.addItem(.separator())
         let services = NSMenu(title: "Services")
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
@@ -65,6 +66,7 @@ enum MainMenu {
         menu.addItem(item("Delete Note", #selector(MainWindowController.deleteCurrentNote(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Export All as Text…", #selector(AppDelegate.exportAllAsText(_:)), target: NSApp.delegate as? AppDelegate))
+        menu.addItem(item("Back Up Notes…", #selector(AppDelegate.backUpNotes(_:)), target: NSApp.delegate as? AppDelegate))
         menu.addItem(.separator())
         menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w"))
         return menu

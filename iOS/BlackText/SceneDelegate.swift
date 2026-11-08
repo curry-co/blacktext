@@ -51,22 +51,39 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         isListening = true
         guard let store else { return }
         DispatchQueue.global(qos: .utility).async {
-            _ = try? store.purgeDeleted(before: Date().addingTimeInterval(-30 * 86_400))
+            let purged = (try? store.purgeDeleted(before: Date().addingTimeInterval(-30 * 86_400))) ?? 0
+            // Removing notes queues their deletions; send them now rather than at the next edit.
+            guard purged > 0 else { return }
+            DispatchQueue.main.async { Sync.cloud?.localChangesMayExist() }
         }
         startCloudSync()
         showScreenshotState()
     }
 
-    /// Only builds signed with the iCloud entitlement sync (not Simulator builds from CI).
+    /// Only builds signed with the iCloud entitlement sync (not Simulator builds from CI). The engine is the
+    /// app's; this scene hooks its canvas up to it, each time it connects.
     private func startCloudSync() {
-        guard CloudSync.isAvailable, Sync.cloud == nil, let main,
-              let syncStore = try? Store(url: DatabaseLocation.url) else { return }
-        let sync = CloudSync(store: syncStore, deviceName: UIDevice.current.model)
+        Sync.start()
+        guard let sync = Sync.cloud, let main else { return }
         sync.willApplyRemoteChanges = { [weak main] in main?.editor.flushPendingSave() }
         sync.didApplyRemoteChanges = { [weak main] _ in main?.databaseDidChange() }
+        sync.onStatusChange = { [weak self] status in self?.syncStatusDidChange(status) }
         main.onLocalChange = { [weak sync] in sync?.localChangesMayExist() }
-        Sync.cloud = sync
-        sync.start()
+        syncStatusDidChange(sync.status)
+    }
+
+    private static var toldAboutSuspension = false
+
+    /// Sync stopped for the user to decide (their iCloud data was deleted or reset, or another account
+    /// signed in): asks once a launch.
+    private func syncStatusDidChange(_ status: CloudSync.Status) {
+        guard let suspension = status.suspension, !Self.toldAboutSuspension,
+              let root = window?.rootViewController, root.presentedViewController == nil else { return }
+        Self.toldAboutSuspension = true
+        let alert = UIAlertController(title: "iCloud sync is off", message: suspension.explanation, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Keep Off", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Turn Sync On", style: .default) { _ in Sync.cloud?.resume() })
+        root.present(alert, animated: true)
     }
 
     /// `-BTScreenshot canvas|sidebar|find` opens the newest note and puts the app in a state for CI's
@@ -83,6 +100,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidDisconnect(_ scene: UIScene) {
         flush()
+        // Sync carries on without a window; stop it calling into this one.
+        if let sync = Sync.cloud {
+            sync.willApplyRemoteChanges = nil
+            sync.didApplyRemoteChanges = nil
+            sync.onStatusChange = nil
+        }
         if isListening {
             notify_cancel(notifyToken)
             isListening = false

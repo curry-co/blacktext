@@ -204,7 +204,7 @@ import CryptoKit
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), editedAt: Date(timeIntervalSince1970: 1_800_000_000),
                             deletedAt: nil, device: "Mac")
         let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, note.uid))
-        CloudSync.fill(record, with: note)
+        try CloudSync.fill(record, with: note)
         #expect(record["body"] == nil, "the text only lives in the encrypted field")
         #expect(record.encryptedValues["body"] as Data? != nil)
         #expect(CloudSync.note(from: record) == note)
@@ -216,10 +216,10 @@ import CryptoKit
         return (0..<400_000).map { _ in String(UInt32.random(in: 0...UInt32.max, using: &generator), radix: 36) }.joined(separator: " ")
     }()
 
-    static func hugeRecord(_ uid: String) -> CKRecord {
+    static func hugeRecord(_ uid: String) throws -> CKRecord {
         let note = SyncNote(uid: uid, text: hugeText, createdAt: Date(), editedAt: Date(), deletedAt: nil, device: "Mac")
         let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, uid))
-        CloudSync.fill(record, with: note)
+        try CloudSync.fill(record, with: note)
         return record
     }
 
@@ -228,7 +228,7 @@ import CryptoKit
     }
 
     @Test func hugeNotesTravelAsAnAsset() throws {
-        let record = Self.hugeRecord("big")
+        let record = try Self.hugeRecord("big")
         #expect(record.encryptedValues["body"] as Data? == nil)
         #expect(record.encryptedValues["bodyKey"] as Data? == nil, "CloudKit protects assets as well as encrypted fields")
         #expect(try Self.assetData(record) == Compression.pack(Self.hugeText).data)
@@ -290,8 +290,8 @@ import CryptoKit
     }
 
     @Test func shrinkingANoteDropsTheAssetAndKey() throws {
-        let record = Self.hugeRecord("shrinks")
-        CloudSync.fill(record, with: SyncNote(uid: "shrinks", text: "short now", createdAt: Date(), editedAt: Date(), deletedAt: nil, device: "Mac"))
+        let record = try Self.hugeRecord("shrinks")
+        try CloudSync.fill(record, with: SyncNote(uid: "shrinks", text: "short now", createdAt: Date(), editedAt: Date(), deletedAt: nil, device: "Mac"))
         #expect(record["bodyAsset"] as? CKAsset == nil)
         #expect(record.encryptedValues["bodyKey"] as Data? == nil)
         #expect(CloudSync.note(from: record)?.text == "short now")
@@ -301,9 +301,51 @@ import CryptoKit
         let version = SyncVersion(uid: "v1", noteUID: "n1", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
                                   source: "agent:claude", body: Data("draft".utf8), compressed: false)
         let record = CKRecord(recordType: CloudSync.RecordType.version, recordID: CloudSync.recordID(.version, version.uid))
-        CloudSync.fill(record, with: version)
-        #expect((record["note"] as? CKRecord.Reference)?.action == .deleteSelf)
+        try CloudSync.fill(record, with: version)
+        // Not owned: a note may have more than the 750 records CloudKit lets one record own.
+        #expect((record["note"] as? CKRecord.Reference)?.action == CKRecord.ReferenceAction.none)
         #expect(CloudSync.version(from: record) == version)
+    }
+
+    @Test func eachSendOfAHugeNoteHasItsOwnAssetFile() throws {
+        let note = SyncNote(uid: "big", text: Self.hugeText, createdAt: Date(), editedAt: Date(), deletedAt: nil, device: "Mac")
+        let first = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, "big"))
+        let second = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, "big"))
+        let one = try #require(try CloudSync.fill(first, with: note))
+        let two = try #require(try CloudSync.fill(second, with: note))
+        defer { for file in [one, two] { try? FileManager.default.removeItem(at: file) } }
+        #expect(one != two, "a retry mustn't overwrite or delete the file an earlier send is still using")
+        #expect(FileManager.default.fileExists(atPath: one.path))
+    }
+
+    /// A record this build can't read is kept whole (encrypted fields too, and its asset's bytes) so a
+    /// later build can read it.
+    @Test func unreadableRecordsAreKeptWhole() throws {
+        let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, "later"))
+        record["compressed"] = 0
+        record["editedAt"] = Date(timeIntervalSince1970: 1_800_000_000)
+        record.encryptedValues["body"] = Data("from a newer build".utf8)
+        let archived = try NSKeyedArchiver.archivedData(withRootObject: record, requiringSecureCoding: true)
+        let kept = Store.UnreadableRecord(recordName: record.recordID.recordName, recordType: record.recordType, record: archived,
+                                          asset: Data("asset bytes".utf8))
+        let store = try Store(url: temporaryDatabase())
+        try store.keepUnreadable(kept)
+        let stored = try #require(try store.unreadableRecords().first)
+        #expect(stored == kept)
+        let (restored, file) = try #require(CloudSync.unarchive(stored))
+        defer { if let file { try? FileManager.default.removeItem(at: file) } }
+        #expect(CloudSync.note(from: restored)?.text == "from a newer build")
+        let asset = try #require((restored["bodyAsset"] as? CKAsset)?.fileURL)
+        #expect(try Data(contentsOf: asset) == Data("asset bytes".utf8))
+        try store.forgetUnreadable(recordName: stored.recordName)
+        #expect(try store.unreadableRecords().isEmpty)
+    }
+
+    @Test func onlyRealFailuresSetAChangeAside() {
+        #expect(CloudSync.isTransient(.networkUnavailable))
+        #expect(CloudSync.isTransient(.quotaExceeded), "it'll go once there's room")
+        #expect(!CloudSync.isTransient(.invalidArguments))
+        #expect(!CloudSync.isTransient(.permissionFailure))
     }
 
     @Test func systemFieldsRoundTrip() throws {

@@ -436,7 +436,7 @@ final class SidebarController: UIViewController, UITableViewDataSource, UITableV
             cell = noteCell
         case let version as VersionRow:
             let versionCell = dequeue(VersionCell.self, for: indexPath)
-            let by = version.summary.agentName.map { " · \($0)" } ?? ""
+            let by = version.summary.origin.map { " · \($0)" } ?? ""
             versionCell.configure("\(Format.versionTime(version.summary.createdAt)) · \(Format.words(version.summary.wordCount))\(by)")
             cell = versionCell
         case let hit as HitRow:
@@ -632,7 +632,7 @@ final class NoteCell: SidebarCell {
 
     func configure(title text: String, detail detailText: String, disclosure: Disclosure, onToggle: @escaping () -> Void) {
         title.text = text.isEmpty ? "New note" : text
-        title.textColor = text.isEmpty ? Palette.tertiaryText : Palette.text
+        title.textColor = text.isEmpty ? Palette.secondaryText : Palette.text
         detail.text = detailText
         self.onToggle = onToggle
         disclosureButton.isHidden = disclosure == .none
@@ -689,7 +689,7 @@ final class HitCell: SidebarCell {
 
     func configure(_ hit: SearchHit) {
         title.text = hit.note.title.isEmpty ? "Empty note" : hit.note.title
-        let matches = hit.matchCount == 1 ? "1 match" : "\(Format.number(hit.matchCount)) matches"
+        let matches = hit.matchCount == 1 ? "1 match" : "\(Format.number(hit.matchCount))\(hit.isCountCapped ? "+" : "") matches"
         detail.text = "\(Format.short(hit.note.updatedAt)) · \(matches)"
         let text = NSMutableAttributedString(string: hit.snippet, attributes: [
             .font: UIFont.systemFont(ofSize: 13), .foregroundColor: Palette.secondaryText,

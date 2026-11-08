@@ -149,7 +149,7 @@ func run() throws {
         let versions = try service.versions(noteID: id)
         if args.json { printJSON(versions.map(AgentJSON.version)); return }
         for version in versions {
-            let by = version.agentName.map { "  by \($0)" } ?? ""
+            let by = version.origin.map { "  \($0)" } ?? ""
             print("\(String(version.id).leftPadded(to: 6))  \(dateFormatter.string(from: version.createdAt).leftPadded(to: 21))  \("\(version.wordCount) w".leftPadded(to: 9))\(by)")
         }
 

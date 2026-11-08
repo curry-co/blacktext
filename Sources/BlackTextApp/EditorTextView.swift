@@ -152,9 +152,12 @@ final class EditorTextView: NSTextView {
 
     // MARK: Find highlights
 
+    /// Ranges past the end of the text (from a search of text that has since got shorter) are dropped:
+    /// TextKit throws on them.
     func setFindHighlights(_ matches: [NSRange], current: Int?, highlightAll: Bool) {
-        findMatches = matches
-        currentMatch = current
+        let length = (string as NSString).length
+        findMatches = matches.last.map { NSMaxRange($0) <= length } ?? true ? matches : matches.filter { NSMaxRange($0) <= length }
+        currentMatch = current.flatMap { findMatches.indices.contains($0) ? $0 : nil }
         self.highlightAll = highlightAll
         refreshMatchColors(force: true)
         needsDisplay = true
@@ -220,7 +223,9 @@ final class EditorTextView: NSTextView {
         containerRect.origin.y -= origin.y
         let glyphs = layoutManager.glyphRange(forBoundingRect: containerRect, in: textContainer)
         let characters = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        let indices = matchIndices(overlapping: characters).filter(isHighlighted)
+        // Typing may have shortened the text since the matches were found; they're redone shortly.
+        let length = (string as NSString).length
+        let indices = matchIndices(overlapping: characters).filter { isHighlighted($0) && NSMaxRange(findMatches[$0]) <= length }
         guard !indices.isEmpty else { return }
 
         let spacing = (defaultParagraphStyle?.lineSpacing ?? 0)
@@ -258,7 +263,7 @@ final class EditorTextView: NSTextView {
 
     /// Where a match sits, in this view's coordinates.
     func rect(for range: NSRange) -> NSRect? {
-        guard let layoutManager, let textContainer else { return nil }
+        guard let layoutManager, let textContainer, NSMaxRange(range) <= (string as NSString).length else { return nil }
         layoutManager.ensureLayout(forCharacterRange: range)
         let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         return layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
