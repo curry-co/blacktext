@@ -67,6 +67,29 @@ func temporaryDatabase() -> URL {
         #expect(try store.summary(id: id)?.versionCount == 2)
     }
 
+    /// Restoring a version that can't be read must fail, not hand back empty text to restore.
+    @Test func aVersionThatDoesNotDecodeIsAnError() throws {
+        let id = try store.createNote(text: "draft")
+        let version = try #require(try store.addVersion(noteID: id, text: "draft"))
+        try store.db.run("UPDATE versions SET compressed = 1, body = x'01020304' WHERE id = ?", .int(version))
+        #expect(throws: (any Error).self) { try store.version(id: version) }
+        try store.db.run("UPDATE versions SET compressed = 0, body = x'61ff62' WHERE id = ?", .int(version))
+        #expect(throws: (any Error).self) { try store.version(id: version) }
+
+        // An unreadable latest version doesn't stop the next one being saved.
+        #expect(try store.addVersion(noteID: id, text: "draft") != nil)
+    }
+
+    @Test func compressionRefusesBytesItDidNotWrite() throws {
+        let long = String(repeating: "black coffee ", count: 100)
+        let packed = Compression.pack(long)
+        #expect(packed.compressed)
+        #expect(try Compression.unpack(packed.data, compressed: true) == long)
+        #expect(try Compression.unpack(Data("plain".utf8), compressed: false) == "plain")
+        #expect(throws: (any Error).self) { try Compression.unpack(Data([0x01, 0x02, 0x03]), compressed: true) }
+        #expect(throws: (any Error).self) { try Compression.unpack(Data([0xFF]), compressed: false) }
+    }
+
     @Test func deleteMovesToRecentlyDeletedAndPurges() throws {
         let keep = try store.createNote(text: "keep")
         let gone = try store.createNote(text: "gone")

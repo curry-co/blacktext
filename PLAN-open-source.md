@@ -31,11 +31,10 @@ Audited 2026-11-07.
 
 ## 1. Fix before announcing
 
-1. **Encrypt large note attachments.**
-   - *The gap.* `CloudSync` stores a note or version body in `encryptedValues`, which is end-to-end encrypted. A body over about 900 KB compressed goes up as a `CKAsset` instead, and assets are end-to-end encrypted only for people who have turned on Advanced Data Protection.
-   - *Your notes.* None of them come close (the largest is 4 KB), but a pasted log file could.
-   - *The fix.* Encrypt the asset file with AES-GCM (CryptoKit), using a new 256-bit key for each record, and store that key in `encryptedValues["bodyKey"]`. Add a round-trip test. TestFlight build 4 can't read the new format, so replace it.
-   - *Until then,* the README and site describe the exception rather than claiming everything is encrypted. The PR description already does.
+1. **Large note attachments: no gap after all.**
+   - *The mistake.* This item assumed CloudKit's encrypted fields are end-to-end encrypted for everyone, and only assets need Advanced Data Protection. Apple's iCloud data security overview says otherwise: under standard data protection, third-party app data is "encrypted in transit and on server", and with Advanced Data Protection, encrypted fields and assets alike are end-to-end encrypted. So a big body sent as a `CKAsset` is protected exactly as well as one in `encryptedValues`, and the AES-GCM layer added in `201d2bc` (its key in `encryptedValues["bodyKey"]`) protected nothing extra.
+   - *Now.* Big bodies go up as plain assets again. The reader still opens the assets sealed by the builds in between.
+   - *The copy.* The README and site say notes are end-to-end encrypted only with Advanced Data Protection (section 8). PR #1's description repeated the mistake.
 2. **Give the two CI jobs distinct names.** Both workflows call their job `build`, and a ruleset matches required checks by job name. Rename them `mac` (in `ci.yml`) and `ios` (in `ios.yml`).
 3. **Take the Admin key out of GitHub.** See section 4.
 4. **Rewrite the README.** It currently promises "no account and no cloud". See section 8.
@@ -279,15 +278,13 @@ Keep what works: the principles, the keyboard table, Agents, the command line an
    - "**On every device.** Mac, iPhone and iPad, synced through iCloud in seconds."
    - "**Save+New** on iPhone and iPad does what ⌘↩ does."
 5. **Nothing added.** Unchanged except "Your notes are yours":
-   > **Your notes are yours.** They live in one file on your device. Sync goes through your own iCloud account and is end-to-end encrypted. There's no BlackText account and no BlackText server. It's open source, so you never have to take my word for it.
-   >
-   > (Once section 1's fix lands. Until then: "end-to-end encrypted for notes up to about 900 KB".)
+   > **Your notes are yours.** They live in one file on your device. Sync goes through your own private iCloud database, encrypted in transit and on Apple's servers, and end-to-end encrypted if you turn on Advanced Data Protection. There's no BlackText account and no BlackText server. It's open source, so you never have to take my word for it.
 6. **Using it.** The current Mac text, plus an "On iPhone and iPad" part:
    > Same page, same notes. **Save+New**, at the bottom right above the keyboard, files the note away and gives you a clean page, with Undo for a few seconds. The sidebar, history, find & replace and search across notes work as on the Mac, and with a hardware keyboard so do the Mac's shortcuts.
 
    Check every claim against the app before publishing.
 7. **Sync** (new):
-   > BlackText keeps your notes, their history and deletions the same on your Mac, iPhone and iPad through iCloud, usually within seconds. Sign in to the same Apple Account on each device; there's nothing to set up. Note text is end-to-end encrypted, so Apple stores it but can't read it. If two devices change the same note at once, the newer edit wins and the other is kept in the note's history, labelled with the device it came from. Without iCloud, BlackText works the same on one device. Builds you make yourself don't sync, because iCloud needs Apple's signing.
+   > BlackText keeps your notes, their history and deletions the same on your Mac, iPhone and iPad through iCloud, usually within seconds. Sign in to the same Apple Account on each device; there's nothing to set up. Notes are encrypted in transit and on Apple's servers; turn on Advanced Data Protection and they're end-to-end encrypted, so only your devices can read them. If two devices change the same note at once, the newer edit wins and the other is kept in the note's history, labelled with the device it came from. Without iCloud, BlackText works the same on one device. Builds you make yourself don't sync, because iCloud needs Apple's signing.
 8. **Agents, the `blacktext` command, Your data.** Your data adds that sync is optional and that export still writes plain `.txt` files.
 9. **Privacy** (new):
    > BlackText collects nothing: no analytics, no crash reporting, no tracking. Its only network connection is to iCloud, for sync.
@@ -377,7 +374,7 @@ Plain HTML and CSS in black and white, matching the app. No trackers and no font
 
 | # | Step | Who |
 |---|---|---|
-| 1 | On `ios`: encrypt large attachments, rename the jobs to `mac` and `ios`, harden the workflows (section 4), `.gitignore` | Me, pushed to PR #1 |
+| 1 | On `ios`: encrypt large attachments (since undone, see section 1), rename the jobs to `mac` and `ios`, harden the workflows (section 4), `.gitignore` | Me, pushed to PR #1 |
 | 2 | Try sync between your iPhone and Mac with a new TestFlight build | You |
 | 3 | Merge PR #1 (rebase) | You |
 | 4 | Repo settings, topics, labels, security features, rulesets, Actions restrictions (sections 2, 3, 5): one scripted batch | Me, once you approve the batch |

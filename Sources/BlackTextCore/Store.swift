@@ -243,7 +243,8 @@ public final class Store: @unchecked Sendable {
     func insertVersionLocked(noteID: NoteID, text: String, source: String, date: Date,
                              packed: (data: Data, compressed: Bool)? = nil, words: Int? = nil) throws -> VersionID? {
         guard !text.allSatisfy(\.isWhitespace) else { return nil }
-        if let latest = try latestVersionTextLocked(noteID), latest == text { return nil }
+        // An unreadable latest version counts as different, so this one is still kept.
+        if let latest = try? latestVersionTextLocked(noteID), latest == text { return nil }
         let packed = packed ?? Compression.pack(text)
         try db.run("INSERT INTO versions (note_id, created_at, word_count, source, compressed, body) VALUES (?, ?, ?, ?, ?, ?)",
                    .int(noteID), .double(date.timeIntervalSince1970), .int(Int64(words ?? WordCount.count(text))), .text(source),
@@ -281,7 +282,7 @@ public final class Store: @unchecked Sendable {
             let summary = VersionSummary(id: row.int64(0), noteID: row.int64(1),
                                          createdAt: Date(timeIntervalSince1970: row.double(2)),
                                          wordCount: row.int(3), source: row.text(4))
-            return (summary, Compression.unpack(row.blob(6), compressed: row.int(5) != 0))
+            return (summary, try Compression.unpack(row.blob(6), compressed: row.int(5) != 0))
         }
     }
 
@@ -294,7 +295,7 @@ public final class Store: @unchecked Sendable {
         defer { row.reset() }
         try row.bind([.int(noteID)])
         guard try row.step() else { return nil }
-        return Compression.unpack(row.blob(1), compressed: row.int(0) != 0)
+        return try Compression.unpack(row.blob(1), compressed: row.int(0) != 0)
     }
 
     // MARK: State

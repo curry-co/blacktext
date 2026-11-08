@@ -39,9 +39,23 @@ enum Compression {
         return (packed, true)
     }
 
-    static func unpack(_ data: Data, compressed: Bool) -> String {
-        guard compressed else { return String(decoding: data, as: UTF8.self) }
-        guard let raw = try? (data as NSData).decompressed(using: .lzfse) as Data else { return "" }
-        return String(decoding: raw, as: UTF8.self)
+    /// Throws rather than guess when the bytes aren't what `pack` makes (damaged, or a format from a newer
+    /// build): a guess like empty text would be saved over the note.
+    static func unpack(_ data: Data, compressed: Bool) throws -> String {
+        let raw: Data
+        if compressed {
+            guard let unpacked = try? (data as NSData).decompressed(using: .lzfse) as Data else { throw BodyDecodeError() }
+            raw = unpacked
+        } else {
+            raw = data
+        }
+        // Decoding replaces invalid UTF-8; if anything was replaced, the bytes weren't text.
+        let text = String(decoding: raw, as: UTF8.self)
+        guard text.utf8.count == raw.count, text.utf8.elementsEqual(raw) else { throw BodyDecodeError() }
+        return text
     }
+}
+
+public struct BodyDecodeError: Error, CustomStringConvertible {
+    public var description: String { "This text couldn't be read. It may be damaged, or from a newer version of BlackText." }
 }

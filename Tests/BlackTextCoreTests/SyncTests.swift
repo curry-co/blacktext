@@ -49,6 +49,19 @@ import Testing
         #expect(try pending() == [SyncChange(outboxID: try pending()[0].outboxID, kind: .note, uid: uid, isDeletion: true)])
     }
 
+    @Test func aVersionThatDoesNotDecodeIsNotStored() throws {
+        let id = try store.createNote(text: "kept")
+        let uid = try #require(try store.noteUID(id: id))
+        let garbled = SyncVersion(uid: "garbled", noteUID: uid, createdAt: Date(), source: "user",
+                                  body: Data([0x01, 0x02, 0x03, 0x04]), compressed: true)
+        #expect(throws: (any Error).self) { try store.applyRemote(version: garbled) }
+        #expect(try store.versions(noteID: id).isEmpty)
+
+        let orphan = SyncVersion(uid: "orphan", noteUID: "missing", createdAt: Date(), source: "user",
+                                 body: Data([0x01, 0x02, 0x03, 0x04]), compressed: true)
+        #expect(throws: (any Error).self) { try store.applyRemote(version: orphan) }
+    }
+
     @Test func upgradingAnExistingDatabaseGivesEveryNoteAUidAndQueuesIt() throws {
         let url = temporaryDatabase()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -172,6 +185,7 @@ import Testing
 
 #if canImport(CloudKit)
 import CloudKit
+import CryptoKit
 
 @Suite struct CloudRecordTests {
     @Test func onlySignedBuildsOnTheirOwnDatabaseSync() {
@@ -213,26 +227,37 @@ import CloudKit
         try Data(contentsOf: try #require((record["bodyAsset"] as? CKAsset)?.fileURL))
     }
 
-    @Test func hugeNotesTravelAsAnEncryptedAsset() throws {
+    @Test func hugeNotesTravelAsAnAsset() throws {
         let record = Self.hugeRecord("big")
-        let packed = Compression.pack(Self.hugeText).data
-        let stored = try Self.assetData(record)
         #expect(record.encryptedValues["body"] as Data? == nil)
-        #expect((record.encryptedValues["bodyKey"] as Data?)?.count == 32)
-        #expect(stored.count == packed.count + 28, "nonce, ciphertext and tag")
-        #expect(stored.range(of: packed.prefix(64)) == nil, "the asset holds no plaintext")
-        #expect(stored.range(of: Data(Self.hugeText.prefix(64).utf8)) == nil)
+        #expect(record.encryptedValues["bodyKey"] as Data? == nil, "CloudKit protects assets as well as encrypted fields")
+        #expect(try Self.assetData(record) == Compression.pack(Self.hugeText).data)
         #expect(CloudSync.note(from: record)?.text == Self.hugeText)
     }
 
-    @Test func eachHugeBodyGetsItsOwnKey() throws {
-        let one = Self.hugeRecord("one"), two = Self.hugeRecord("two")
-        #expect(one.encryptedValues["bodyKey"] as Data? != two.encryptedValues["bodyKey"] as Data?)
+    /// A record as builds from 201d2bc wrote a huge body: AES-GCM in the asset, its key in an encrypted field.
+    static func encryptedAssetRecord(_ uid: String) throws -> (record: CKRecord, asset: URL) {
+        let packed = Compression.pack(hugeText)
+        let key = SymmetricKey(size: .bits256)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("sealed-\(UUID().uuidString)")
+        try #require(try AES.GCM.seal(packed.data, using: key).combined).write(to: url)
+        let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, uid))
+        record["compressed"] = packed.compressed ? 1 : 0
+        record["editedAt"] = Date()
+        record["bodyAsset"] = CKAsset(fileURL: url)
+        record.encryptedValues["bodyKey"] = key.withUnsafeBytes { Data($0) }
+        return (record, url)
     }
 
-    @Test func aTamperedAssetIsRejected() throws {
-        let record = Self.hugeRecord("tampered")
-        let url = try #require((record["bodyAsset"] as? CKAsset)?.fileURL)
+    @Test func encryptedAssetsFromEarlierBuildsStillRead() throws {
+        let (record, url) = try Self.encryptedAssetRecord("sealed")
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(CloudSync.note(from: record)?.text == Self.hugeText)
+    }
+
+    @Test func aTamperedEncryptedAssetIsRejected() throws {
+        let (record, url) = try Self.encryptedAssetRecord("tampered")
+        defer { try? FileManager.default.removeItem(at: url) }
         var stored = try Data(contentsOf: url)
         stored[stored.count / 2] ^= 0x01
         try stored.write(to: url)
@@ -249,6 +274,19 @@ import CloudKit
         record["editedAt"] = Date()
         record["bodyAsset"] = CKAsset(fileURL: url)
         #expect(CloudSync.note(from: record)?.text == Self.hugeText)
+    }
+
+    /// A body this build can't read (damaged, or a format from a newer build) must never become empty text.
+    @Test func aNoteWhoseBodyDoesNotDecodeIsSkipped() throws {
+        let record = CKRecord(recordType: CloudSync.RecordType.note, recordID: CloudSync.recordID(.note, "garbled"))
+        record["compressed"] = 1
+        record["editedAt"] = Date()
+        record.encryptedValues["body"] = Data([0x01, 0x02, 0x03, 0x04])
+        #expect(CloudSync.note(from: record) == nil)
+
+        record["compressed"] = 0
+        record.encryptedValues["body"] = Data([0x61, 0xFF, 0x62])
+        #expect(CloudSync.note(from: record) == nil, "not UTF-8")
     }
 
     @Test func shrinkingANoteDropsTheAssetAndKey() throws {
