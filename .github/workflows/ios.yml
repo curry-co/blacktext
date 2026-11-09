@@ -67,6 +67,18 @@ jobs:
       - name: Screenshots
         run: SIMULATOR="$SIMULATOR_ID" scripts/ios-screenshots.sh build/ios/Build/Products/Debug-iphonesimulator/BlackText.app build/screenshots
 
+      # At the sizes the App Store asks for: a 6.9-inch iPhone and a 13-inch iPad.
+      - name: App Store screenshots
+        run: |
+          app=build/ios/Build/Products/Debug-iphonesimulator/BlackText.app
+          iphone=$(scripts/pick-simulator.sh "iPhone 17 Pro Max" "iPhone 16 Pro Max")
+          ipad=$(scripts/pick-simulator.sh "iPad Pro 13-inch")
+          if [ -z "$iphone" ] || [ -z "$ipad" ]; then echo "::error::No 6.9-inch iPhone or 13-inch iPad Simulator."; exit 1; fi
+          xcrun simctl shutdown "$SIMULATOR_ID" || true
+          SIMULATOR="$iphone" scripts/ios-screenshots.sh "$app" build/screenshots/app-store/iphone
+          xcrun simctl shutdown "$iphone" || true
+          SIMULATOR="$ipad" scripts/ios-screenshots.sh "$app" build/screenshots/app-store/ipad
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
