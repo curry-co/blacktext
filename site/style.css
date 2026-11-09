@@ -60,4 +60,6 @@ figcaption { color: var(--quiet); font-size: 15px; margin-top: 8px; text-align: 
 @media (prefers-color-scheme: dark) {
   .light-only { display: none; }
   .dark-only { display: block; }
+  /* The icon is black, so on a black page it needs an edge. */
+  .icon, .home img { box-shadow: 0 0 0 1px var(--rule); }
 }
