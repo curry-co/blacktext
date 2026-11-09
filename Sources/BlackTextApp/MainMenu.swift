@@ -38,6 +38,8 @@ enum MainMenu {
         let menu = NSMenu(title: "BlackText")
         let delegate = NSApp.delegate as? AppDelegate
         menu.addItem(item("About BlackText", #selector(AppDelegate.showAbout(_:)), target: delegate))
+        // Only in releases, which can update themselves (see Updater).
+        menu.addItem(item("Check for Updates…", #selector(AppDelegate.checkForUpdates(_:)), target: delegate))
         menu.addItem(.separator())
         menu.addItem(item("Allow Agents to Edit", #selector(AppDelegate.toggleAgentsCanEdit(_:)), target: delegate))
         menu.addItem(item("Copy MCP Config", #selector(AppDelegate.copyMCPConfig(_:)), target: delegate))

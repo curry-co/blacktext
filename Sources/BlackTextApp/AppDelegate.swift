@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var notifyToken: Int32 = 0
     private let services = ServiceProvider()
     private var cloudSync: CloudSync?
+    private let updater = Updater()
     /// Agent ops this run has applied. An op whose edit is in the canvas stays pending until a save records
     /// it, and mustn't be applied again meanwhile.
     private var handledOps: Set<Int64> = []
@@ -84,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             DispatchQueue.main.async { self?.cloudSync?.localChangesMayExist() }
         }
         startCloudSync()
+        updater.start()
         LaunchTrace.finished()
     }
 
@@ -244,6 +246,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits, .applicationVersion: BlackText.version, .version: ""])
     }
 
+    @objc func checkForUpdates(_ sender: Any?) {
+        updater.checkForUpdates()
+    }
+
     @objc func toggleAgentsCanEdit(_ sender: Any?) {
         store.agentsCanEdit.toggle()
     }
@@ -255,6 +261,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if item.action == #selector(showSyncStatus(_:)) {
             item.isHidden = cloudSync == nil
             item.title = cloudSync?.status.suspension == nil ? "iCloud Sync…" : "iCloud Sync Is Off…"
+        }
+        if item.action == #selector(checkForUpdates(_:)) {
+            item.isHidden = !updater.isAvailable
+            return updater.canCheckForUpdates
         }
         return true
     }

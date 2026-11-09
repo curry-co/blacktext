@@ -18,6 +18,7 @@ IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's
 NOTARY_PROFILE=${NOTARY_PROFILE-blacktext-notary}
 PROFILE=${PROFILE:-$HOME/.config/blacktext-release/BlackText_Developer_ID.provisionprofile}
 CLOUD_ENV=${CLOUD_ENV:-Production}
+FEED=${FEED-https://curry-co.github.io/blacktext/appcast.xml}
 APP=build/BlackText.app
 DMG=build/BlackText.dmg
 
@@ -55,9 +56,14 @@ else
   else
     echo "No provisioning profile at $PROFILE: this build won't sync with iCloud." >&2
   fi
-  # Inside out: the helper first, then the app. Notarization requires the hardened runtime and a secure timestamp.
-  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP/Contents/Helpers/blacktext"
-  codesign --force --options runtime --timestamp --sign "$IDENTITY" ${entitlements[@]+"${entitlements[@]}"} "$APP"
+  # Updates: where to find them, and check daily without asking first (the privacy policy says so).
+  # Only for real releases: a Development build updating itself would turn into the release. FEED= turns it off.
+  if [ "$CLOUD_ENV" = Production ] && [ -n "$FEED" ]; then
+    /usr/libexec/PlistBuddy -c "Add :SUFeedURL string $FEED" -c "Add :SUEnableAutomaticChecks bool true" "$APP/Contents/Info.plist"
+    echo "Updates from $FEED"
+  fi
+  # Notarization requires the hardened runtime and a secure timestamp.
+  scripts/sign-app.sh "$IDENTITY" "$APP" ${entitlements[@]+"${entitlements[@]}"}
   codesign --verify --strict --deep "$APP"
   if [ -f "$PROFILE" ]; then
     # The signature has to carry the iCloud entitlements for the right CloudKit environment.

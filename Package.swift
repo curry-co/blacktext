@@ -10,6 +10,11 @@ let package = Package(
         .executable(name: "blacktext", targets: ["blacktext"]),
         .executable(name: "blacktext-bench", targets: ["blacktext-bench"]),
     ],
+    dependencies: [
+        // In-app updates for the Mac app downloaded from the website. Pinned: updates are signed and
+        // installed by this code, so a new version comes in only on purpose.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
+    ],
     targets: [
         .target(
             name: "BlackTextCore",
@@ -17,7 +22,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "BlackTextApp",
-            dependencies: ["BlackTextCore"]
+            dependencies: ["BlackTextCore", .product(name: "Sparkle", package: "Sparkle")]
         ),
         .executableTarget(
             name: "blacktext",
