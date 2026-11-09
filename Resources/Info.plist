@@ -32,6 +32,8 @@
     <false/>
     <key>NSSupportsSuddenTermination</key>
     <false/>
+    <key>SUPublicEDKey</key>
+    <string>SfygpsRMoNmyUOU9cx8ttGxdEMNksc8BGiZk7WV1GBg=</string>
     <key>NSHumanReadableCopyright</key>
     <string>MIT License. github.com/curry-co/blacktext</string>
     <key>CFBundleURLTypes</key>

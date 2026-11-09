@@ -1,6 +1,6 @@
 # BlackText
 
-**BlackText is a plain-text notepad for the Mac that saves everything and adds nothing.**
+**BlackText is a plain-text notepad for Mac, iPhone and iPad that saves everything and adds nothing.**
 
 BlackText is a single page for typing. There's no formatting, no choice of fonts and no styles, just plain text in light or dark.
 
@@ -8,14 +8,23 @@ It saves as you type and keeps a timestamped version of each note as it grows. Y
 
 Find & replace is instant, in one note or across all of them. BlackText opens as fast after ten years of notes as it did on the first day. Your AI agents, like Claude, GPT and Grok, can read, search and write to it.
 
-It runs on your Mac and keeps everything in one file that belongs to you. It needs no account, and it's open source. Signed releases can keep your notes in step across your devices through your own private iCloud; nothing else ever sees them.
+It keeps everything in one file on your device that belongs to you. It needs no account, it collects nothing, and it's open source. The released apps keep your notes in step across your Mac, iPhone and iPad through your own private iCloud; nothing else ever sees them.
 
 - **Plain text only.** One font, one size, black and white. Paste strips formatting.
 - **Never lose a word.** Saved about a second after you pause. A version every 100 words changed. If a save ever fails, it says so and keeps a copy.
-- **⌘↩ files the note away** and gives you a fresh one. ⌘Z brings it back.
+- **⌘↩ files the note away** and gives you a fresh one (**Save+New** on iPhone and iPad). ⌘Z brings it back.
 - **Find & replace** that's live as you type: one match at a time or all at once, inverted highlights, match marks, whole word, regex, preserve case, and search across every note.
 - **Fast at any size.** Launch does the same work after ten years as on day one.
-- **Agents welcome.** A built-in MCP server lets Claude, Codex, Cursor and others read, search and write your notes.
+- **Agents welcome.** A built-in MCP server lets Claude, Codex, Cursor and others read, search and write your notes, on the Mac.
+
+## Download
+
+Free, for everyone:
+
+- **Mac:** [Download BlackText.dmg](https://github.com/curry-co/blacktext/releases/latest/download/BlackText.dmg). It needs macOS 14 or later and runs on Apple Silicon and Intel. Open it and drag BlackText to Applications. It checks for updates by itself.
+- **iPhone and iPad:** [BlackText on the App Store](https://apps.apple.com/app/id6831824350). It needs iOS 17 or later.
+
+The website is [curry-co.github.io/blacktext](https://curry-co.github.io/blacktext/). To build the Mac app yourself, see [Build it yourself](#build-it-yourself).
 
 ## Nothing added
 
@@ -31,13 +40,13 @@ I take my coffee black. I wanted my notes the same way: nothing added.
 
 **History is honest.** Each version is saved when it happened. You can edit any note, but you can't rewrite the past.
 
-**Your notes are yours.** They live in one file on your machine, with no account and no lock-in. With iCloud sync on, they also go to your own private iCloud database, encrypted in transit and on Apple's servers (and end to end, if you turn on Advanced Data Protection), and to nowhere else. It's open source, so you never have to take my word for it.
+**Your notes are yours.** They live in one file on your device, with no account and no lock-in. With iCloud sync on, they also go to your own private iCloud database, encrypted in transit and on Apple's servers (and end to end, if you turn on Advanced Data Protection), and to nowhere else. It's open source, so you never have to take my word for it.
 
 **Agents are guests.** They can read, search and write. They can't delete, and every change they make is saved as a version with their name on it.
 
 **When in doubt, leave it out.**
 
-## Install
+## Build it yourself
 
 Requires macOS 14 or later and the Xcode Command Line Tools (`xcode-select --install`). Xcode itself isn't needed.
 
@@ -47,7 +56,7 @@ cd blacktext
 make install
 ```
 
-This builds `BlackText.app`, puts it in `~/Applications`, and links the `blacktext` command into `~/.local/bin`.
+This builds `BlackText.app`, puts it in `~/Applications`, and links the `blacktext` command into `~/.local/bin`. A build you make works like the download, except that it doesn't sync (iCloud needs Apple's signing) and doesn't update itself.
 
 ## Using it
 
@@ -56,6 +65,10 @@ The sidebar lists your notes, most recently edited first. The **+** at the top (
 Each note keeps its own history. Click the arrow beside a note to see its versions; click one to read it. Versions are read-only: copy from them, or start a new note from one. Nothing is ever saved "in the past".
 
 Closing the window keeps BlackText running. **⌃⌥B** anywhere shows or hides it.
+
+### On iPhone and iPad
+
+Same page, same notes. **Save+New**, at the bottom right above the keyboard, files the note away and gives you a clean page, with Undo for a few seconds. The sidebar slides in from the left edge, or sits beside the page on a wider iPad. History, Recently Deleted, find & replace and search across notes work as on the Mac, and with a hardware keyboard so do the Mac's shortcuts. The text follows the system Text Size, and pinching makes it bigger or smaller.
 
 <a name="keyboard"></a>
 ### Keyboard
@@ -145,6 +158,10 @@ Releases signed by the project (not builds you make yourself) sync through a pri
 
 Sync stops and asks before doing anything if you delete BlackText's data from iCloud (Settings), reset your encrypted iCloud data, or sign in to a different iCloud account. The notes on the device are always kept. **BlackText → iCloud Sync…** shows what's waiting to be sent and anything iCloud refused.
 
+## Privacy
+
+BlackText collects nothing: no analytics, no crash reporting, no tracking. Its only network connections are to iCloud, for sync, and, in the Mac app downloaded from the website, a check about once a day for a newer version (**BlackText → Check for Updates…** checks now). The [privacy policy](https://curry-co.github.io/blacktext/privacy/) has the details.
+
 ## Speed
 
 `make bench` builds a database simulating 10 years of heavy use and times what BlackText does with it. Results on an Apple Silicon Mac:
@@ -181,9 +198,15 @@ make bench     # seed 10 years of notes and measure
 - `Sources/BlackTextApp`: the AppKit app.
 - `Sources/blacktext`: the command-line tool.
 - `Sources/blacktext-bench`: the benchmark.
+- `iOS`: the iPhone and iPad app, which shares BlackTextCore. CI builds it with XcodeGen and takes Simulator screenshots.
+- `site`: the website, deployed by GitHub Pages, with the Mac app's update feed (`appcast.xml`).
 
-See [PLAN.md](PLAN.md) for the design.
+The Mac app's one dependency is [Sparkle](https://sparkle-project.org), for updates. See [PLAN.md](PLAN.md) for the design and [docs/releasing.md](docs/releasing.md) for how releases are made.
+
+## Support
+
+Email [apps@curry.co](mailto:apps@curry.co) or [open an issue](https://github.com/curry-co/blacktext/issues). Please report security problems privately, as [SECURITY.md](SECURITY.md) describes.
 
 ## License
 
-MIT
+MIT. The Mac app includes [Sparkle](https://github.com/sparkle-project/Sparkle), under [its own MIT-style license](https://github.com/sparkle-project/Sparkle/blob/2.x/LICENSE).

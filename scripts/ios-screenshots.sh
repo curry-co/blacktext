@@ -2,6 +2,8 @@
 # Opens the iOS app in the Simulator with a few sample notes and saves screenshots of its main states,
 # so changes can be checked without a phone. The app understands `-BTScreenshot <state>`.
 # Usage: scripts/ios-screenshots.sh path/to/BlackText.app OUTPUT_DIR
+# SIMULATOR picks the device, by name or id. On a 6.9-inch iPhone or a 13-inch iPad, the screenshots are the
+# sizes the App Store asks for, with the status bar at 9:41 and full.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,9 +25,17 @@ DATA=$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE" data)
 DB="$DATA/Library/Application Support/blacktext/blacktext.sqlite"
 mkdir -p "$(dirname "$DB")"
 export BLACKTEXT_DB="$DB"
-printf 'Groceries\n\nCoffee beans, dark roast\nOat milk\nBread' | "$CLI" new >/dev/null
+# Oldest first: the last one is the newest, and opens on the page.
+printf 'Book list\n\nPiranesi\nThe Remains of the Day\nA Gentleman in Moscow\nThe Overstory' | "$CLI" new >/dev/null
+printf 'Groceries\n\nCoffee beans, dark roast\nOat milk\nSourdough\nLemons' | "$CLI" new >/dev/null
 printf 'https://github.com/curry-co/blacktext' | "$CLI" new >/dev/null
-printf 'Notes on pricing\n\nThanks for sending this over. I read it twice and I think the second paragraph is doing all the work, so I would lead with it. The rest can follow in any order.\n\nThe obstacle is the way.' | "$CLI" new >/dev/null
+printf 'Gift ideas\n\nDad: a good thermos\nSam: watercolors\nMaya: the next book in the series' | "$CLI" new >/dev/null
+printf "Reply to Alex\n\nThanks for sending this over. I read it twice, and I think the second paragraph is doing all the work, so I'd lead with it. The rest can follow in any order.\n\nTalk Thursday?" | "$CLI" new >/dev/null
+printf "Morning pages\n\nThe point isn't to write well. It's to get it down before the thought is gone: an idea, a quote, a link, the paragraph you want to rewrite later.\n\nOne page. Plain text. Nothing added.\n\nWhen it's done, file it away and start a clean page. It's still in the sidebar, with every version kept." | "$CLI" new >/dev/null
+
+# The status bar Apple uses in its own screenshots.
+xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --batteryLevel 100 \
+  --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --operatorName '' 2>/dev/null || true
 
 shoot() { # name, appearance, launch arguments…
   local name=$1 appearance=$2
@@ -43,3 +53,5 @@ shoot find-light light -BTScreenshot find
 shoot canvas-dark dark -BTScreenshot canvas
 shoot sidebar-dark dark -BTScreenshot sidebar
 xcrun simctl terminate "$DEVICE" "$BUNDLE" || true
+xcrun simctl status_bar "$DEVICE" clear 2>/dev/null || true
+sips -g pixelWidth -g pixelHeight "$OUT/canvas-light.png" | awk '/pixel/ {printf "%s ", $2} END {print "pixels"}'

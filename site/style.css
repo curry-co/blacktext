@@ -1,0 +1,65 @@
+/* BlackText's site: black and white, like the app. No web fonts, no scripts, no trackers. */
+:root {
+  --ink: #000;
+  --paper: #fff;
+  --quiet: #555;
+  --rule: #ddd;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #fff;
+    --paper: #000;
+    --quiet: #aaa;
+    --rule: #333;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+main, header, footer { max-width: 680px; margin: 0 auto; padding: 0 20px; }
+header { padding-top: 48px; }
+footer { padding-top: 24px; padding-bottom: 48px; color: var(--quiet); font-size: 15px; border-top: 1px solid var(--rule); margin-top: 56px; }
+footer a { color: var(--quiet); }
+a { color: var(--ink); text-underline-offset: 2px; }
+h1 { font-size: 40px; line-height: 1.1; margin: 16px 0 8px; letter-spacing: -0.5px; }
+h2 { font-size: 22px; margin: 44px 0 8px; }
+h3 { font-size: 17px; margin: 28px 0 4px; }
+p, ul { margin: 0 0 14px; }
+ul { padding-left: 20px; }
+li { margin-bottom: 6px; }
+code { font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.lede { font-size: 21px; line-height: 1.45; margin-bottom: 24px; }
+.quiet { color: var(--quiet); }
+.home { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600; }
+.home img { width: 32px; height: 32px; border-radius: 7px; }
+.icon { width: 96px; height: 96px; border-radius: 21px; display: block; }
+.buttons { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0 8px; }
+.button {
+  display: inline-block;
+  padding: 12px 20px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 600;
+}
+.button.primary { background: var(--ink); color: var(--paper); }
+.button small { display: block; font-weight: 400; font-size: 13px; opacity: 0.8; }
+figure { margin: 40px 0; }
+figure img { width: 100%; height: auto; display: block; border-radius: 10px; border: 1px solid var(--rule); }
+figure.phone { display: flex; gap: 16px; justify-content: center; }
+figure.phone img { width: calc(50% - 8px); max-width: 300px; border-radius: 24px; }
+figcaption { color: var(--quiet); font-size: 15px; margin-top: 8px; text-align: center; }
+.light-only { display: block; }
+.dark-only { display: none; }
+@media (prefers-color-scheme: dark) {
+  .light-only { display: none; }
+  .dark-only { display: block; }
+  /* The icon is black, so on a black page it needs an edge. */
+  .icon, .home img { box-shadow: 0 0 0 1px var(--rule); }
+}
