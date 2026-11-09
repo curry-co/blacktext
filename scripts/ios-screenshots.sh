@@ -44,7 +44,7 @@ shoot() { # name, appearance, launch arguments…
   shift 2
   xcrun simctl ui "$DEVICE" appearance "$appearance"
   SIMCTL_CHILD_BLACKTEXT_DB="$DB" xcrun simctl launch --terminate-running-process "$DEVICE" "$BUNDLE" "$@" >/dev/null
-  sleep 4
+  sleep 7 # CI's Simulator sometimes needs more than 4 seconds to draw the first frame
   xcrun simctl io "$DEVICE" screenshot "$OUT/$name.png" >/dev/null
   echo "Saved $name.png"
 }
