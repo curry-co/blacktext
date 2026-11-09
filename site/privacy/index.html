@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · BlackText</title>
+<meta name="description" content="BlackText collects nothing. What happens to your notes, and the few connections the apps make.">
+<link rel="icon" href="../favicon.png">
+<link rel="apple-touch-icon" href="../images/icon-180.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header>
+  <a class="home" href="../"><img src="../images/icon-180.png" alt="">BlackText</a>
+  <h1>Privacy</h1>
+  <p class="quiet">Effective November 9, 2026</p>
+</header>
+
+<main>
+  <p class="lede">BlackText collects nothing. There are no analytics, no crash reporting of its own, no ads, no tracking and no account. Your notes are never sent to us, and we have no way to read them.</p>
+  <p>This page covers the BlackText apps for Mac, iPhone and iPad, and this website. It describes the apps as they're published by the project, and the code on <a href="https://github.com/curry-co/blacktext">GitHub</a> shows it.</p>
+
+  <h2>Your notes</h2>
+  <p>Your notes, their history and Recently Deleted are kept in one file on your device. On a Mac, it's <code>~/Library/Application&nbsp;Support/blacktext/blacktext.sqlite</code>. Deleting the app on iPhone or iPad deletes that file with it; on a Mac, the file stays until you delete it.</p>
+
+  <h2>iCloud sync</h2>
+  <p>If you're signed in to iCloud, BlackText keeps your notes the same across your devices through a private database in <em>your own</em> iCloud account. Only your devices, signed in to your Apple Account, can reach it. We can't see it, and BlackText has no server of its own.</p>
+  <ul>
+    <li>Apple stores that data under <a href="https://www.apple.com/legal/privacy/">Apple's privacy policy</a>. Note text is encrypted in transit and on Apple's servers. If you turn on <a href="https://support.apple.com/102651">Advanced Data Protection</a>, it's end-to-end encrypted, so only your devices can read it.</li>
+    <li>To stop syncing, turn BlackText off in your device's iCloud settings. Your notes stay on the device.</li>
+    <li>To delete the copy in iCloud: on iPhone or iPad, open Settings, tap your name, then iCloud, then Manage Account Storage, then BlackText. On a Mac, open System Settings, click your name, then iCloud, then Manage. The notes on your devices are kept.</li>
+  </ul>
+
+  <h2>Connections the apps make</h2>
+  <ul>
+    <li><strong>iCloud</strong>, for sync, as above.</li>
+    <li><strong>Update checks, on the Mac.</strong> The Mac app downloaded from this website checks for a newer version about once a day. It asks this website for a short file listing the latest version, and downloads an update from GitHub only when there is one. The request names the app and its version, and nothing else about you or your notes. You can check by hand instead, from <strong>BlackText → Check for Updates…</strong>.</li>
+  </ul>
+  <p>The iPhone and iPad app makes no connections other than iCloud. Apple's App Store handles its updates.</p>
+
+  <h2>AI agents</h2>
+  <p>On the Mac, BlackText can let AI agents you set up, such as Claude or Cursor, read, search and write your notes. Nothing reaches an agent unless you connect it. Whatever an agent reads is then handled by that agent and its provider under their own terms, not ours. <strong>BlackText → Allow Agents to Edit</strong> makes agents read-only.</p>
+
+  <h2>Information Apple shares with developers</h2>
+  <p>If you've chosen to share analytics with app developers in your device's settings, Apple may give us anonymous, aggregated statistics, such as how many times the app was installed, and crash reports. They don't include your notes or anything that identifies you.</p>
+
+  <h2>This website</h2>
+  <p>This website uses no cookies, no analytics and no scripts. It's hosted by GitHub Pages, and GitHub may log visitors' IP addresses for security, as described in <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a>. We don't receive those logs.</p>
+
+  <h2>Email</h2>
+  <p>If you write to us, we use your email address and what you send only to reply, and we never share them.</p>
+
+  <h2>Children</h2>
+  <p>BlackText collects no information from anyone, including children.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the new version is posted here with a new date. Its history is on <a href="https://github.com/curry-co/blacktext/commits/main/site/privacy/index.html">GitHub</a>.</p>
+
+  <h2>Contact</h2>
+  <p><a href="mailto:apps@curry.co">apps@curry.co</a></p>
+</main>
+
+<footer>
+  <a href="../">BlackText</a> · <a href="../support/">Support</a> · <a href="https://github.com/curry-co/blacktext">GitHub</a>
+</footer>
+</body>
+</html>
