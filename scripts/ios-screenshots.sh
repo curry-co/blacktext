@@ -19,6 +19,8 @@ CLI="$(swift build -c release --show-bin-path)/blacktext"
 xcrun simctl boot "$DEVICE" 2>/dev/null || true
 xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl install "$DEVICE" "$APP"
+# The first time the keyboard appears on an iPhone, a "slide to type" tip covers it. Mark the tip as seen.
+xcrun simctl spawn "$DEVICE" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true
 
 # Sample notes, written by the Mac command-line tool into a database inside the app's container.
 DATA=$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE" data)
@@ -42,11 +44,14 @@ shoot() { # name, appearance, launch arguments…
   shift 2
   xcrun simctl ui "$DEVICE" appearance "$appearance"
   SIMCTL_CHILD_BLACKTEXT_DB="$DB" xcrun simctl launch --terminate-running-process "$DEVICE" "$BUNDLE" "$@" >/dev/null
-  sleep 4
+  sleep 7 # CI's Simulator sometimes needs more than 4 seconds to draw the first frame
   xcrun simctl io "$DEVICE" screenshot "$OUT/$name.png" >/dev/null
   echo "Saved $name.png"
 }
 
+# Open the page once without keeping the screenshot, so that if the tip shows anyway, it's used up here.
+shoot warm-up light -BTScreenshot canvas
+rm "$OUT/warm-up.png"
 shoot canvas-light light -BTScreenshot canvas
 shoot sidebar-light light -BTScreenshot sidebar
 shoot find-light light -BTScreenshot find
